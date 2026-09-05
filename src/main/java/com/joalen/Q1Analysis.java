@@ -10,6 +10,9 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
+import com.joalen.WordCount.SumReducer;
+import com.joalen.WordCount.TokenizerMapper;
+
 public class Q1Analysis {
     public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException
     { 

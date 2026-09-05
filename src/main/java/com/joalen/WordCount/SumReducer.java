@@ -1,4 +1,4 @@
-package com.joalen;
+package com.joalen.WordCount;
 
 import java.io.IOException;
 

@@ -1,4 +1,4 @@
-package com.joalen;
+package com.joalen.WordCount;
 
 import java.io.IOException;
 
@@ -6,7 +6,7 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 
-public class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
+public class WordCountMapper extends Mapper<Object, Text, Text, IntWritable> {
     private static final IntWritable ONE = new IntWritable(1);
     private final Text word = new Text();
 
