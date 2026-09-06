@@ -8,6 +8,7 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
@@ -15,12 +16,11 @@ import org.apache.hadoop.util.GenericOptionsParser;
 import com.joalen.DistinctCharacters.DistinctCountCombiner;
 import com.joalen.DistinctCharacters.DistinctCountReducer;
 import com.joalen.DistinctCharacters.LengthLastCharMapper;
-import com.joalen.Shared.SumReducer;
 import com.joalen.TargetWord.TargetWordsMapper;
 
 public class Q1Analysis {
     /** 
-     * Mapper stage in MapReduce that helps aggregate word to frequency provided some com.google.thirdparty.publicsuffix
+     * Mapper stage in MapReduce for Part 1A that helps aggregate word to frequency provided some com.google.thirdparty.publicsuffix
      */
     static class WordCountMapper extends Mapper<Object, Text, Text, IntWritable> {
 
@@ -51,6 +51,38 @@ public class Q1Analysis {
                     context.write(word, ONE);
                 }
             }
+        }
+    }
+
+    /** 
+     * Reducer stage in MapReduce for Part 1A that does, combiner stage (summed frequencies) + "shuffle and sorting" + reduction. 
+     * Once reduced, there's the word to frequency mapping.
+     */
+    static class SumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
+        private final IntWritable result = new IntWritable(); 
+
+        /** 
+         * Adds together all values received from Mapper provided same key and yields out the output for 
+         * key and total sum of frequencies together. 
+         * 
+         * @param key word associated for values to sum 
+         * @param values collection of integer values to sum for a word 
+         * @param context MapReduce's context from the Mapper stage for ALL global key-value maps
+         * 
+         * @throws IOException system errored due to I/O
+         * @throws InterruptedException system interrupted the reduce() operation for some reason
+         */
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException
+        { 
+            int sum = 0; 
+
+            for (IntWritable value : values)
+            { 
+                sum += value.get(); 
+            }
+
+            result.set(sum);
+            context.write(key, result);
         }
     }
 
