@@ -1,6 +1,10 @@
 package com.joalen;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -16,9 +20,10 @@ import org.apache.hadoop.util.GenericOptionsParser;
 import com.joalen.DistinctCharacters.DistinctCountCombiner;
 import com.joalen.DistinctCharacters.DistinctCountReducer;
 import com.joalen.DistinctCharacters.LengthLastCharMapper;
-import com.joalen.TargetWord.TargetWordsMapper;
 
 public class Q1Analysis {
+    private static final Pattern NON_LETTER = Pattern.compile("[^a-z]+");
+
     /** 
      * Mapper stage in MapReduce for Part 1A that helps aggregate word to frequency provided some com.google.thirdparty.publicsuffix
      */
@@ -41,7 +46,7 @@ public class Q1Analysis {
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException
         { 
             String line = value.toString().toLowerCase();
-            String[] tokens = line.split("[^a-z]+"); // non-alphabet splits 
+            String[] tokens = NON_LETTER.split(line);
     
             for (String token : tokens)
             { 
@@ -55,7 +60,7 @@ public class Q1Analysis {
     }
 
     /** 
-     * Reducer stage in MapReduce for Part 1A that does, combiner stage (summed frequencies) + "shuffle and sorting" + reduction. 
+     * Reducer stage in MapReduce for Part 1A and 1B that does, combiner stage (summed frequencies) + "shuffle and sorting" + reduction. 
      * Once reduced, there's the word to frequency mapping.
      */
     static class SumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
@@ -83,6 +88,35 @@ public class Q1Analysis {
 
             result.set(sum);
             context.write(key, result);
+        }
+    }
+
+    /** 
+     * Mapper stage in MapReducer for Part 1B that is similar to WordsMapper BUT filters even further with a provided list
+     */
+    static class TargetWordsMapper extends Mapper<Object, Text, Text, IntWritable> {
+        private static final IntWritable ONE = new IntWritable(1);
+        private final Text word = new Text(); 
+    
+        private static final Set<String> TARGETS = new HashSet<>(Arrays.asList( 
+            "ahab",
+            "captain",
+            "harpoon"
+        ));
+    
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException
+        { 
+            String line = value.toString().toLowerCase(); 
+            String[] tokens = NON_LETTER.split(line);
+    
+            for (String token : tokens)
+            { 
+                if (TARGETS.contains(token))
+                { 
+                    word.set(token);
+                    context.write(word, ONE);
+                }
+            }
         }
     }
 
