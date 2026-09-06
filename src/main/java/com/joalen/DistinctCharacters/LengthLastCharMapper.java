@@ -5,7 +5,7 @@ import java.io.IOException;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 
-public class LengthLastChar extends Mapper<Object, Text, Text, Text> {
+public class LengthLastCharMapper extends Mapper<Object, Text, Text, Text> {
     private final Text outKey = new Text(); 
     private final Text outVal = new Text(); 
 

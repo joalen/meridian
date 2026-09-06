@@ -11,6 +11,9 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
+import com.joalen.DistinctCharacters.DistinctCountCombiner;
+import com.joalen.DistinctCharacters.DistinctCountReducer;
+import com.joalen.DistinctCharacters.LengthLastCharMapper;
 import com.joalen.Shared.SumReducer;
 import com.joalen.TargetWord.TargetWordsMapper;
 import com.joalen.WordCount.WordCountMapper;
@@ -50,6 +53,15 @@ public class Q1Analysis {
                 job.setOutputKeyClass(Text.class);
                 job.setOutputValueClass(IntWritable.class);   
                 break; 
+            case "C": 
+                job.setMapperClass(LengthLastCharMapper.class);
+                job.setCombinerClass(DistinctCountCombiner.class);
+                job.setReducerClass(DistinctCountReducer.class);
+                job.setMapOutputKeyClass(Text.class);
+                job.setMapOutputValueClass(Text.class);
+                job.setOutputKeyClass(Text.class);
+                job.setOutputValueClass(IntWritable.class);
+                break;
             default:
                 System.err.println("Part " + part + " not implemented yet.");
                 System.exit(2);
