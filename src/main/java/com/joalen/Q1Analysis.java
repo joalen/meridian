@@ -11,7 +11,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
-import com.joalen.WordCount.SumReducer;
+import com.joalen.Shared.SumReducer;
 import com.joalen.WordCount.WordCountMapper;
 
 public class Q1Analysis {
