@@ -43,7 +43,7 @@ public class BestWordCombiner extends Reducer<Text, Text, Text, Text> {
 
         if (bestWord != null)
         { 
-            outVal.set(bestWord + ", " + bestCount);
+            outVal.set(bestWord + "," + bestCount);
             context.write(key, outVal);
         }
     }
