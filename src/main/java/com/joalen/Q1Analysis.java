@@ -12,6 +12,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
 import com.joalen.Shared.SumReducer;
+import com.joalen.TargetWord.TargetWordsMapper;
 import com.joalen.WordCount.WordCountMapper;
 
 public class Q1Analysis {
@@ -42,6 +43,12 @@ public class Q1Analysis {
                 job.setOutputKeyClass(Text.class);
                 job.setOutputValueClass(IntWritable.class);
                 break;
+            case "B": 
+                job.setMapperClass(TargetWordsMapper.class);
+                job.setCombinerClass(SumReducer.class);
+                job.setReducerClass(SumReducer.class);
+                job.setOutputKeyClass(Text.class);
+                job.setOutputValueClass(IntWritable.class);    
             default:
                 System.err.println("Part " + part + " not implemented yet.");
                 System.exit(2);
