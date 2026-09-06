@@ -17,10 +17,6 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
-import com.joalen.DistinctCharacters.DistinctCountCombiner;
-import com.joalen.DistinctCharacters.DistinctCountReducer;
-import com.joalen.DistinctCharacters.LengthLastCharMapper;
-
 public class Q1Analysis {
     private static final Pattern NON_LETTER = Pattern.compile("[^a-z]+");
 
@@ -76,7 +72,7 @@ public class Q1Analysis {
 
     /** 
      * Reducer stage in MapReduce for Part 1A and 1B that does, combiner stage (summed frequencies) + "shuffle and sorting" + reduction. 
-     * Once reduced, there's the word to frequency mapping.
+     * Once reduced, there's the word to frequency mapping
      */
     static class SumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
         private final IntWritable result = new IntWritable(); 
@@ -120,6 +116,109 @@ public class Q1Analysis {
         }
     }
 
+    /** 
+     * Mapper stage for Part 1C that does mapping for just last characters and counts of them
+     */
+    static class LengthLastCharMapper extends Mapper<Object, Text, Text, Text> {
+        private final Text outKey = new Text(); 
+        private final Text outVal = new Text(); 
+        
+        /** 
+         * Builds map for all alphabetical words' last characters and their frequencies found in a text corpus
+         * 
+         * @param key input record key
+         * @param value input record value 
+         * @param context MapReduce context to store key-value pairings for entire MapReduce lifecycle
+         * 
+         * @throws IOException I/O errors from system 
+         * @throws InterruptedException if system interrupts MapReduce's map() functionality
+         */
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException 
+        { 
+            String line = value.toString().toLowerCase(); 
+            String[] tokens = line.split("[^a-z]+");
+    
+            for (String token : tokens)
+            { 
+                if (!token.isEmpty())
+                { 
+                    char lastChar = token.charAt(token.length() - 1);
+                    outKey.set(token.length() + "," + lastChar);
+                    outVal.set(token);
+    
+                    context.write(outKey, outVal);
+                }
+            }
+        }
+    }    
+    
+    /** 
+     * Combiner stage in MapReduce that does more deduping of the text corpus' words and emits deduped words 
+     * to the reducer stage
+     */
+    static class DistinctCountCombiner extends Reducer<Text, Text, Text, Text> {
+        private final Text outVal = new Text(); 
+    
+        /** 
+         * Does a deduplication of words received via Mapper stage from Part 1C of MapReduce to where 
+         * it only emits pairings of a key to distinct words
+         * 
+         * @param key word associated for values to sum 
+         * @param values collection of words from mapper
+         * @param context MapReduce's context from the Mapper stage for ALL global key-value maps
+         * 
+         * @throws IOException system errored due to I/O
+         * @throws InterruptedException system interrupted the reduce() operation for some reason
+         */
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException
+        { 
+            Set<String> distinctWords = new HashSet<>(); 
+            
+            for (Text value : values)
+            { 
+                distinctWords.add(value.toString());
+            }
+    
+            for (String distinctWord : distinctWords) 
+            { 
+                outVal.set(distinctWord);
+                context.write(key, outVal);
+            }
+        }
+    }
+    
+    /** 
+     * Reducer stage in MapReduce that takes in deduped words from combiner and counts the 
+     * frequencies of those words
+     */
+    static class DistinctCountReducer extends Reducer<Text, Text, Text, IntWritable> {
+        private final IntWritable result = new IntWritable(); 
+    
+        /** 
+         * Retrieves the deduped words from combiner stage and does a frequency counting of those 
+         * words to then emit back pairings from key to frequency values
+         * 
+         * @param key word associated for values to sum 
+         * @param values collection of deduped words from combiner
+         * @param context MapReduce's context from the Mapper stage for ALL global key-value maps
+         * 
+         * @throws IOException system errored due to I/O
+         * @throws InterruptedException system interrupted the reduce() operation for some reason
+         */
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException
+        { 
+            Set<String> distinctWords = new HashSet<>(); 
+            
+            for (Text value : values)
+            { 
+                distinctWords.add(value.toString());
+            }
+    
+            result.set(distinctWords.size());
+            context.write(key, result);
+        }
+    }
+    
     public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException
     { 
         Configuration config = new Configuration(); 
