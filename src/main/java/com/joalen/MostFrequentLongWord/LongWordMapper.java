@@ -40,7 +40,7 @@ public class LongWordMapper extends Mapper<Object, Text, Text, Text> {
         String listPart = line.substring(tabIndex+1).trim();
         int count = countLineNumbers(listPart);
         
-        outVal.set(word + ", " + count);
+        outVal.set(word + "," + count);
         context.write(CONSTANT_KEY, outVal);
     }
 
