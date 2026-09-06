@@ -3,9 +3,8 @@ package com.joalen.InvertedIndex;
 import java.io.IOException;
 
 import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
-import org.w3c.dom.Text;
-
 
 /** 
  * Mapper stage for MapReduce that helps build an inverted index from Q2 dataset
