@@ -48,7 +48,8 @@ public class Q1Analysis {
                 job.setCombinerClass(SumReducer.class);
                 job.setReducerClass(SumReducer.class);
                 job.setOutputKeyClass(Text.class);
-                job.setOutputValueClass(IntWritable.class);    
+                job.setOutputValueClass(IntWritable.class);   
+                break; 
             default:
                 System.err.println("Part " + part + " not implemented yet.");
                 System.exit(2);
