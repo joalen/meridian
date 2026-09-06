@@ -13,6 +13,9 @@ import org.apache.hadoop.util.GenericOptionsParser;
 
 import com.joalen.InvertedIndex.InvertedIndexMapper;
 import com.joalen.InvertedIndex.InvertedIndexReducer;
+import com.joalen.MostFrequentLongWord.BestWordCombiner;
+import com.joalen.MostFrequentLongWord.BestWordReducer;
+import com.joalen.MostFrequentLongWord.LongWordMapper;
 
 public class Q2Analysis {
     public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException { 
@@ -40,6 +43,15 @@ public class Q2Analysis {
                 job.setMapOutputValueClass(IntWritable.class);
                 job.setOutputKeyClass(Text.class);
                 job.setOutputValueClass(Text.class);
+                break;
+            case "B": 
+                job.setMapperClass(LongWordMapper.class);
+                job.setCombinerClass(BestWordCombiner.class);
+                job.setReducerClass(BestWordReducer.class);
+                job.setMapOutputKeyClass(Text.class);
+                job.setMapOutputValueClass(Text.class);
+                job.setOutputKeyClass(Text.class);
+                job.setOutputValueClass(IntWritable.class);
                 break;
             default:
                 System.err.println("Part " + part + " not implemented yet.");
