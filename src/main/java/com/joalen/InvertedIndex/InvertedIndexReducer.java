@@ -5,7 +5,6 @@ import java.util.TreeSet;
 
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.Reduce;
 import org.apache.hadoop.mapreduce.Reducer;
 
 /** 

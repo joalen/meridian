@@ -1,6 +1,7 @@
 package com.joalen.InvertedIndex;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
@@ -45,7 +46,7 @@ public class InvertedIndexMapper extends Mapper<Object, Text, Text, IntWritable>
             return;
         }
 
-        lineNumber.set()lineNumberFromDataset;
+        lineNumber.set(lineNumberFromDataset);
 
         for (int index : INDEXED_FIELDS)
         { 
@@ -56,7 +57,7 @@ public class InvertedIndexMapper extends Mapper<Object, Text, Text, IntWritable>
                 continue;
             }
             
-            String tokens = NON_LETTER.split(fieldValue);
+            String[] tokens = NON_LETTER.split(fieldValue);
 
             for (String token : tokens)
             { 
