@@ -7,6 +7,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
@@ -16,9 +17,43 @@ import com.joalen.DistinctCharacters.DistinctCountReducer;
 import com.joalen.DistinctCharacters.LengthLastCharMapper;
 import com.joalen.Shared.SumReducer;
 import com.joalen.TargetWord.TargetWordsMapper;
-import com.joalen.WordCount.WordCountMapper;
 
 public class Q1Analysis {
+    /** 
+     * Mapper stage in MapReduce that helps aggregate word to frequency provided some com.google.thirdparty.publicsuffix
+     */
+    static class WordCountMapper extends Mapper<Object, Text, Text, IntWritable> {
+
+        private static final IntWritable ONE = new IntWritable(1);
+        private final Text word = new Text();
+    
+        
+        /** 
+         * Builds map for all alphabetical words found in a text corpus
+         * 
+         * @param key input record key
+         * @param value input record value 
+         * @param context MapReduce context to store key-value pairings for entire MapReduce lifecycle
+         * 
+         * @throws IOException I/O errors from system 
+         * @throws InterruptedException if system interrupts MapReduce's map() functionality
+         */
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException
+        { 
+            String line = value.toString().toLowerCase();
+            String[] tokens = line.split("[^a-z]+"); // non-alphabet splits 
+    
+            for (String token : tokens)
+            { 
+                if (!token.isEmpty())
+                { 
+                    word.set(token);
+                    context.write(word, ONE);
+                }
+            }
+        }
+    }
+
     public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException
     { 
         Configuration config = new Configuration(); 
