@@ -8,7 +8,7 @@
   <artifactId>Q1Analysis</artifactId>
   <version>1</version>
 
-  <name>mapreduce-assignment-1</name>
+  <name>mapreduce-assignment-1-partI</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
