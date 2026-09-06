@@ -17,7 +17,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
-public class Q1Analysis {
+public class TextMetrics {
     private static final Pattern NON_LETTER = Pattern.compile("[^a-z]+");
 
     /** 
@@ -235,7 +235,7 @@ public class Q1Analysis {
         String part = otherArgs[2];
 
         Job job = Job.getInstance(config, "Q1 Analysis - Part " + part);
-        job.setJarByClass(Q1Analysis.class);
+        job.setJarByClass(TextMetrics.class);
 
         switch (part)
         { 

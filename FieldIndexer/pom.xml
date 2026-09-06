@@ -5,15 +5,15 @@
 
   <parent>
       <groupId>com.joalen</groupId>
-      <artifactId>wordwright</artifactId>
+      <artifactId>meridian</artifactId>
       <version>1.0.0</version>
       <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>Q1Analysis</artifactId>
+  <artifactId>FieldIndexer</artifactId>
   <version>1</version>
 
-  <name>mapreduce-assignment-1-partI</name>
+  <name>mapreduce-inverted-index</name>
 
   <dependencies>
     <dependency>
@@ -27,7 +27,7 @@
   </dependencies>
 
   <build>
-    <finalName>Q1Analysis</finalName>
+    <finalName>FieldIndexer</finalName>
     <plugins>
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -35,7 +35,7 @@
           <configuration>
               <archive>
                   <manifest>
-                      <mainClass>com.joalen.Q1Analysis</mainClass>
+                      <mainClass>com.joalen.FieldIndexer</mainClass>
                   </manifest>
               </archive>
           </configuration>

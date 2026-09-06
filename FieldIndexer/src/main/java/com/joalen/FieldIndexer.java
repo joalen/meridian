@@ -17,7 +17,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
 
-public class Q2Analysis {
+public class FieldIndexer {
     /** 
      * Mapper stage for MapReduce that helps build an inverted index from Q2 dataset
      */
@@ -263,7 +263,7 @@ public class Q2Analysis {
         String part = otherArgs[2];
 
         Job job = Job.getInstance(config, "Q2 Analysis - Part " + part);
-        job.setJarByClass(Q2Analysis.class);
+        job.setJarByClass(FieldIndexer.class);
 
         switch (part) { 
             case "A": 

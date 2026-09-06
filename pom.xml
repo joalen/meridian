@@ -4,15 +4,15 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.joalen</groupId>
-  <artifactId>wordwright</artifactId>
+  <artifactId>meridian</artifactId>
   <version>1.0.0</version>
   <packaging>pom</packaging>
 
-  <name>wordwright</name>
+  <name>meridian</name>
 
   <modules>
-    <module>Q1Analysis</module>
-    <module>Q2Analysis</module>
+    <module>TextMetrics</module>
+    <module>FieldIndexer</module>
   </modules>
 
   <properties>

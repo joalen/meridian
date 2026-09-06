@@ -5,15 +5,15 @@
 
   <parent>
       <groupId>com.joalen</groupId>
-      <artifactId>wordwright</artifactId>
+      <artifactId>meridian</artifactId>
       <version>1.0.0</version>
       <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>Q2Analysis</artifactId>
+  <artifactId>TextMetrics</artifactId>
   <version>1</version>
 
-  <name>mapreduce-assignment-1-partII</name>
+  <name>mapreduce-text-metrics</name>
 
   <dependencies>
     <dependency>
@@ -27,7 +27,7 @@
   </dependencies>
 
   <build>
-    <finalName>Q2Analysis</finalName>
+    <finalName>TextMetrics</finalName>
     <plugins>
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -35,7 +35,7 @@
           <configuration>
               <archive>
                   <manifest>
-                      <mainClass>com.joalen.Q2Analysis</mainClass>
+                      <mainClass>com.joalen.TextMetrics</mainClass>
                   </manifest>
               </archive>
           </configuration>
