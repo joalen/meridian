@@ -25,14 +25,20 @@ public class Q1Analysis {
     private static final Pattern NON_LETTER = Pattern.compile("[^a-z]+");
 
     /** 
-     * Mapper stage in MapReduce for Part 1A that helps aggregate word to frequency provided some com.google.thirdparty.publicsuffix
+     * 
+     * Shared abstract class for both parts 1A and 1B for Mapper where the only difference is the filter portion.
+     * Mainly, this gives a shared union between the two parts for me to not repeat code.
      */
-    static class WordCountMapper extends Mapper<Object, Text, Text, IntWritable> {
-
+    abstract static class AbstractWordMapper extends Mapper<Object, Text, Text, IntWritable> {
         private static final IntWritable ONE = new IntWritable(1);
         private final Text word = new Text();
-    
-        
+
+        /** 
+         * 
+         * Decides whether a given token should emit
+         */
+        protected abstract boolean accept(String token);
+
         /** 
          * Builds map for all alphabetical words found in a text corpus
          * 
@@ -43,19 +49,28 @@ public class Q1Analysis {
          * @throws IOException I/O errors from system 
          * @throws InterruptedException if system interrupts MapReduce's map() functionality
          */
-        public void map(Object key, Text value, Context context) throws IOException, InterruptedException
-        { 
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
             String line = value.toString().toLowerCase();
             String[] tokens = NON_LETTER.split(line);
     
-            for (String token : tokens)
-            { 
-                if (!token.isEmpty())
-                { 
+            for (String token : tokens) {
+                if (accept(token)) {
                     word.set(token);
                     context.write(word, ONE);
                 }
             }
+        }
+    }
+
+    /** 
+     * 
+     * Part 1A mapper class although all its logic derives as-is from the abstract class
+     */
+    static class WordCountMapper extends AbstractWordMapper { 
+        @Override 
+        protected boolean accept(String token)
+        { 
+            return !token.isEmpty();
         }
     }
 
@@ -92,31 +107,16 @@ public class Q1Analysis {
     }
 
     /** 
-     * Mapper stage in MapReducer for Part 1B that is similar to WordsMapper BUT filters even further with a provided list
+     * Mapper stage in MapReducer for Part 1B that filters via target words
      */
-    static class TargetWordsMapper extends Mapper<Object, Text, Text, IntWritable> {
-        private static final IntWritable ONE = new IntWritable(1);
-        private final Text word = new Text(); 
-    
-        private static final Set<String> TARGETS = new HashSet<>(Arrays.asList( 
-            "ahab",
-            "captain",
-            "harpoon"
+    static class TargetWordsMapper extends AbstractWordMapper { 
+        private static final Set<String> TARGETS = new HashSet<>(Arrays.asList(
+            "ahab", "captain", "harpoon"
         ));
-    
-        public void map(Object key, Text value, Context context) throws IOException, InterruptedException
-        { 
-            String line = value.toString().toLowerCase(); 
-            String[] tokens = NON_LETTER.split(line);
-    
-            for (String token : tokens)
-            { 
-                if (TARGETS.contains(token))
-                { 
-                    word.set(token);
-                    context.write(word, ONE);
-                }
-            }
+
+        @Override
+        protected boolean accept(String token) {
+            return TARGETS.contains(token);
         }
     }
 
