@@ -1,0 +1,296 @@
+package com.joalen;
+
+import java.io.IOException;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
+
+public class Q2Analysis {
+    /** 
+     * Mapper stage for MapReduce that helps build an inverted index from Q2 dataset
+     */
+    static class InvertedIndexMapper extends Mapper<Object, Text, Text, IntWritable> {
+        private static final int[] INDEXED_FIELDS = {1, 2, 4, 5};
+        private static final Pattern NON_LETTER = Pattern.compile("[^a-z]+");
+
+        private final Text word = new Text(); 
+        private final IntWritable lineNumber = new IntWritable(); 
+        
+        /** 
+         * Mapping function to take in q2's dataset to where it emits a mapping of token to lineNumber 
+         * pairs for each word found in columns of dataset's indexed fields. This accounts skipping 
+         * header rows and any malformed lines (like non-numerical lines or lines with fewer than 10 fields)
+         * 
+         * @param key ignored (byte offset of the line, per TextInputFormat)
+         * @param value one line from Q2 dataset 
+         * @param context emitted MapReduce pairings of token to lineNumber 
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Mapper task from MapReduce interrupted from system
+         */
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException { 
+            String[] fields = value.toString().split(",", -1); // no empty state columns 
+
+            if (fields.length < 10) { 
+                return;
+            }
+
+            int lineNumberFromDataset; 
+            try { 
+                lineNumberFromDataset = Integer.parseInt(fields[0].trim());
+            } catch (NumberFormatException nfe) { 
+                return;
+            }
+
+            lineNumber.set(lineNumberFromDataset);
+
+            for (int index : INDEXED_FIELDS) { 
+                String fieldValue = fields[index].trim().toLowerCase(); 
+
+                if (fieldValue.isEmpty()) { 
+                    continue;
+                }
+                
+                String[] tokens = NON_LETTER.split(fieldValue);
+
+                for (String token : tokens) { 
+                    if (!token.isEmpty()) { 
+                        word.set(token);
+                        context.write(word, lineNumber);
+                    }
+                }
+            }
+        }
+    }
+
+    /** 
+     * Reducer for building inverted index (word -> sorted deduped line numbers)
+     */
+    static class InvertedIndexReducer extends Reducer<Text, IntWritable, Text, Text> {
+        private final Text result = new Text(); 
+
+        /** 
+         * Reduces per-word line numbers into a single deduped, sorted list.
+         * For each word, collects all line numbers into a TreeSet (removing
+         * duplicates and sorting numerically), then emits them as one comma-separated string.
+         * 
+         * @param key a word (token) from the mapper
+         * @param values possibly duplicated line numbers where that word appeared
+         * @param context used to emit pairings of word to "n1, n2, n3, ..."
+         * 
+         * @throws IOException if system encountered I/O issues
+         * @throws InterruptedException if reduce() task gets interruped from system
+         */
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException
+        { 
+            Set<Integer> lineNumbers = new TreeSet<>(); 
+
+            for (IntWritable value : values)
+            { 
+                lineNumbers.add(value.get());
+            }
+
+            StringBuilder sb = new StringBuilder(); 
+            boolean first = true; 
+
+            for (int lineNumber : lineNumbers)
+            { 
+                if (!first) sb.append(", ");
+                sb.append(lineNumber);
+
+                first = false;
+            }
+
+            result.set(sb.toString());
+            context.write(key, result);
+        }
+    }
+    
+    /** 
+     * Filters the inverted index from previously having made it from the dataset for Q2 down to 
+     * "long" words and counts occurences of them.
+     */
+    static class LongWordMapper extends Mapper<Object, Text, Text, Text> {
+        private static final int MIN_LENGTH = 12; 
+        private static final Text CONSTANT_KEY = new Text("candidate");
+        
+        private final Text outVal = new Text(); 
+
+        /**
+         * Parses the output from having transformed dataset into pairings generated from part 1 of Q2
+         * and firstly does parsing of tab-separated word to lines. Then, it drops pairings if malformed
+         * via shorter than min length or if no tab is found. 
+         * 
+         * This emits pairings of word to count
+         *  
+         */
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            String line = value.toString(); 
+            int tabIndex = line.indexOf('\t');
+
+            if (tabIndex < 0) { 
+                return;
+            }
+
+            String word = line.substring(0, tabIndex);
+
+            if (word.length() < MIN_LENGTH) { 
+                return;
+            }
+
+            String listPart = line.substring(tabIndex+1).trim();
+            int count = countLineNumbers(listPart);
+            
+            outVal.set(word + "," + count);
+            context.write(CONSTANT_KEY, outVal);
+        }
+
+        private int countLineNumbers(String listPart) { 
+            if (listPart.isEmpty()) { 
+                return 0;
+            }
+
+            return listPart.split(",\\s*").length;
+        }
+    }
+
+    /** 
+     * Combiner to help locally reduce pairings of word to count down to a single pair with highest 
+     * count for each key found.
+     */
+    static class BestWordCombiner extends Reducer<Text, Text, Text, Text> {
+        private final Text outVal = new Text(); 
+
+        /** 
+         * Finds the pairings of word to count, where it has highest count among all values for 
+         * key and emits only that one
+         * 
+         * @param key shared constant key from mapper stage
+         * @param values pairings of word to count for comparison 
+         * @param context MapReduce mapper that contains the next payload to emit key to bestWord and bestCount 
+         * 
+         * @throws IOException system halts for I/O issues
+         * @throws InterruptedException reduce() stage interrupted by system  
+         */
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException { 
+            String bestWord = null; 
+            int bestCount = -1; 
+
+            for (Text value : values)
+            { 
+                String[] parts = value.toString().split(",");
+                
+                String word = parts[0]; 
+                int count = Integer.parseInt(parts[1]);
+                
+                if (count > bestCount)
+                { 
+                    bestCount = count; 
+                    bestWord = word;
+                }
+            }
+
+            if (bestWord != null)
+            { 
+                outVal.set(bestWord + "," + bestCount);
+                context.write(key, outVal);
+            }
+        }
+    }
+
+    /**
+     * Final reducer after combiner stage that selects single longest-list word overall
+     * 
+     */
+    static class BestWordReducer extends Reducer<Text, Text, Text, IntWritable> {
+        private final Text outKey = new Text(); 
+        private final IntWritable outVal = new IntWritable(); 
+
+        /** 
+         * Finds the pairing of word to count with the highest count among all values 
+         * for key and emits it as another pair of word to count.
+         */
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException{ 
+            String bestWord = null;
+            int bestCount = -1; 
+
+            for (Text value : values)
+            { 
+                String[] parts = value.toString().split(",");
+                String word = parts[0]; 
+
+                int count = Integer.parseInt(parts[1]);
+                if (count > bestCount)
+                { 
+                    bestCount = count; 
+                    bestWord = word;
+                }
+            }
+
+            if (bestWord != null)
+            { 
+                outKey.set(bestWord);
+                outVal.set(bestCount);
+                context.write(outKey, outVal);
+            }
+        }
+    }
+
+    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException { 
+        Configuration config = new Configuration(); 
+        String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs(); 
+
+        if (otherArgs.length != 3) { 
+            System.err.println("Usage: Q2Analysis <in> <out> <part>");
+            System.err.println("part: A (InvertedIndex) or B (MostFrequentLongWord)");
+            System.exit(2);
+        }
+
+        String in = otherArgs[0];
+        String out = otherArgs[1];
+        String part = otherArgs[2];
+
+        Job job = Job.getInstance(config, "Q2 Analysis - Part " + part);
+        job.setJarByClass(Q2Analysis.class);
+
+        switch (part) { 
+            case "A": 
+                job.setMapperClass(InvertedIndexMapper.class);
+                job.setReducerClass(InvertedIndexReducer.class);
+                job.setMapOutputKeyClass(Text.class);
+                job.setMapOutputValueClass(IntWritable.class);
+                job.setOutputKeyClass(Text.class);
+                job.setOutputValueClass(Text.class);
+                break;
+            case "B": 
+                job.setMapperClass(LongWordMapper.class);
+                job.setCombinerClass(BestWordCombiner.class);
+                job.setReducerClass(BestWordReducer.class);
+                job.setMapOutputKeyClass(Text.class);
+                job.setMapOutputValueClass(Text.class);
+                job.setOutputKeyClass(Text.class);
+                job.setOutputValueClass(IntWritable.class);
+                break;
+            default:
+                System.err.println("Part " + part + " not implemented yet.");
+                System.exit(2);
+        }
+
+        FileInputFormat.addInputPath(job, new Path(in));
+        FileOutputFormat.setOutputPath(job, new Path(out));
+        
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
