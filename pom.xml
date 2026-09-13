@@ -13,6 +13,7 @@
   <modules>
     <module>TextMetrics</module>
     <module>FieldIndexer</module>
+      <module>DeltaChainResolver</module>
   </modules>
 
   <properties>
