@@ -58,4 +58,29 @@ public class Q3
             context.write(outKey, outVal);
         }
     }
+
+    public static class CapitalMapper extends Mapper<LongWritable, Text, Text, Text>
+    { 
+        private final Text outKey = new Text(); 
+        private final Text outVal = new Text(); 
+
+        @Override 
+        protected void map(LongWritable key, Text value, Context context)
+        { 
+            String line = value.toString();
+            if (line.trim().isEmpty()) return;
+
+            String[] csvRows = line.split(",", -1);
+            if (f.length <= CAP_CAPITAL) return;
+
+            String state = csvRows[CAP_STATE], capital = csvRows[CAP_CAPITAL];
+            if (state.equals("State") || state.isEmpty() || capital.isEmpty()) return;
+
+            if (f.length > CAP_TYPE && !clean(f[CAP_TYPE]).equals("state_capital")) return;
+
+            outKey.set(state);
+            outVal.set("C\t" + capital);
+            context.write(outKey, outVal);
+        }
+    }
 }
