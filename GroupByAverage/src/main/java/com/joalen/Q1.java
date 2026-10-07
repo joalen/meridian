@@ -5,6 +5,7 @@ import java.io.IOException;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
 
 public class Q1 
 {
@@ -51,6 +52,28 @@ public class Q1
             outKey.set(state + "\t" + year);
             outVal.set(temperature + "1, ");
             context.write(outKey, outVal);
+        }
+    }
+
+    public static class SumCountCombiner extends Reducer<Text, Text, Text, Text>
+    { 
+        private final Text outVal = new Text(); 
+        
+        @Override 
+        protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException
+        { 
+            double sum = 0;
+            long count = 0; 
+
+            for (Text value : values)
+            { 
+                String[] temperaturePart = value.toString().split(",");
+                sum += Double.parseDouble(temperaturePart[0]);
+                count += Long.parseLong(temperaturePart[1]);
+            }
+
+            outVal.set(sum + "," + count);
+            context.write(key, outVal);
         }
     }
 
