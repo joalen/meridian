@@ -107,7 +107,7 @@ public class Q2 {
             }
 
             if (temperature == INVALID) return; 
-            
+
             outKey.set(state + "\t" + city);
             outVal.set(temperature + ",1");
             context.write(outKey, outVal);
@@ -161,17 +161,17 @@ public class Q2 {
         String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
 
         if (otherArgs.length != 2) {
-            System.err.println("Usage: Q1 <in> <out>");
+            System.err.println("Usage: Q2 <in> <out>");
             System.exit(2);
         }
 
         String in = otherArgs[0];
         String out = otherArgs[1];
 
-        Job job = Job.getInstance(config, "Q1");
-        job.setJarByClass(Q1.class);
+        Job job = Job.getInstance(config, "Q2");
+        job.setJarByClass(Q2.class);
 
-        job.setMapperClass(TemperatureMapper.class);
+        job.setMapperClass(CapitalJoinMapper.class);
         job.setCombinerClass(SumCountCombiner.class);
         job.setReducerClass(AverageReducer.class);
         job.setNumReduceTasks(1);
