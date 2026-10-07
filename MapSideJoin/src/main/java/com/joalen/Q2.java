@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -145,7 +146,7 @@ public class Q2 {
         }
     }
 
-    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException {
+    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException, URISyntaxException {
         Configuration config = new Configuration();
         String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
 
@@ -170,6 +171,8 @@ public class Q2 {
 
         FileInputFormat.addInputPath(job, new Path(in, "city_temperature.csv"));
         FileOutputFormat.setOutputPath(job, new Path(out));
+        
+        job.addCacheFile(new URI(new Path(in, "state-capitals.csv").toString() + "#state-capitals.csv"));
 
         System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
