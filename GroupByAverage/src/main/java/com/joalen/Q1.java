@@ -34,10 +34,10 @@ public class Q1
             String csvLine = value.toString(); 
             if (csvLine.isEmpty()) return; 
 
-            String[] row = csvLine.split(", ", -1);
+            String[] row = csvLine.split(",", -1);
             if (row.length <= TEMP) return;
 
-            String region = row[REGION], state = row[STATE], year = row[YEAR];
+            String region = row[REGION].trim(), state = row[STATE].trim(), year = row[YEAR].trim();
             
             // no headers
             if (region.equals("Region")) return;
@@ -58,7 +58,7 @@ public class Q1
             if (temperature == INVALID) return; 
 
             outKey.set(state + "\t" + year);
-            outVal.set(temperature + "1, ");
+            outVal.set(temperature + ",1");
             context.write(outKey, outVal);
         }
     }
@@ -132,7 +132,7 @@ public class Q1
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
 
-        FileInputFormat.addInputPath(job, new Path(in));
+        FileInputFormat.addInputPath(job, new Path(in, "city_temperature.csv"));
         FileOutputFormat.setOutputPath(job, new Path(out));
 
         System.exit(job.waitForCompletion(true) ? 0 : 1);
