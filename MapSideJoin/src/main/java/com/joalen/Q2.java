@@ -22,92 +22,81 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
 public class Q2 {
-    private static final int REGION = 0;
     private static final int STATE = 2;
-    private static final int YEAR = 6;
+    private static final int CITY = 3;
     private static final int TEMP = 7;
     private static final double INVALID = -99.0;
 
     public static class CapitalJoinMapper extends Mapper<LongWritable, Text, Text, Text> {
         private final Map<String, String> capitals = new HashMap<>();
-        private final Text outKey = new Text(); 
+        private final Text outKey = new Text();
         private final Text outVal = new Text();
-
-        @Override 
-        protected void setup(Context context)
-        { 
-            URI[] filesFromCache = context.getCacheFiles();
-
-            if (cacheFiles == null || cacheFiles.length == 0)
-            {
+    
+        private static String clean(String s) {
+            return s.trim().replace("\"", "");
+        }
+    
+        @Override
+        protected void setup(Context context) throws IOException, InterruptedException {
+            URI[] cacheFiles = context.getCacheFiles();
+    
+            if (cacheFiles == null || cacheFiles.length == 0) {
                 throw new IOException("state-capitals.csv was not added to cache");
             }
-
+    
             String localName = new Path(cacheFiles[0].getPath()).getName();
-
-            BufferedReader br = new BufferedReader(new FileReader(localName));
-
-            try 
-            { 
-                int stateColumn = 0, capitalColumn = 1; 
-                boolean first; 
-                String line; 
-
-                while ((line = reader.readLine()) != null)
-                { 
-                    if (line.trim().isEmpty()) continue; 
-                    String[] csvRow = line.split(",", -1);
-
-                    if (first)
-                    { 
-                        first = false; 
+    
+            try (BufferedReader br = new BufferedReader(new FileReader(localName))) {
+                int stateCol = 0, capitalCol = 1;
+                boolean first = true;
+                String line;
+    
+                while ((line = br.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
+                    String[] f = line.split(",", -1);
+    
+                    if (first) {
+                        first = false;
                         boolean isHeader = false;
-
-                        for (int i = 0; i < f.length; i++)
-                        {
+    
+                        for (int i = 0; i < f.length; i++) {
                             String h = clean(f[i]).toLowerCase(Locale.US);
                             if (h.equals("state")) { stateCol = i; isHeader = true; }
                             else if (h.equals("capital")) { capitalCol = i; isHeader = true; }
                         }
-
                         if (isHeader) continue;
                     }
-
+    
                     if (f.length <= Math.max(stateCol, capitalCol)) continue;
                     capitals.put(clean(f[stateCol]), clean(f[capitalCol]));
                 }
-            } finally { 
-                br.close();
             }
         }
-
-        @Override 
+    
+        @Override
         protected void map(LongWritable key, Text value, Context context)
-        { 
+                throws IOException, InterruptedException {
             String line = value.toString();
             if (line.isEmpty()) return;
-
-            String[] csvRow = line.split(",", -1);
+    
+            String[] row = line.split(",", -1);
             if (row.length <= TEMP) return;
-
+    
             String state = row[STATE].trim(), city = row[CITY].trim();
-            if (state.equals("State")) return; 
-
-            // now we need to have a state that has capital and city
+            if (state.equals("State")) return; // header
+    
             String capital = capitals.get(state);
             if (capital == null || !capital.equals(city)) return;
-
-
+    
             double temperature;
-            try { 
+            try {
                 temperature = Double.parseDouble(row[TEMP].trim());
-            } catch (NumberFormatException nfe)
-            { 
+            } catch (NumberFormatException nfe) {
                 return;
             }
-
-            if (temperature == INVALID) return; 
-
+    
+            if (temperature == INVALID) return;
+    
             outKey.set(state + "\t" + city);
             outVal.set(temperature + ",1");
             context.write(outKey, outVal);
