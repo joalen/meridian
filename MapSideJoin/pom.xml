@@ -13,7 +13,7 @@
   <artifactId>MapSideJoin</artifactId>
   <version>1</version>
 
-  <name>mapreduce-group-by-average</name>
+  <name>mapreduce-map-side-join</name>
 
   <dependencies>
     <dependency>
