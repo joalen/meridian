@@ -7,13 +7,29 @@ import java.util.Map;
 
 import javax.naming.Context;
 
-import org.w3c.dom.Text;
+import java.io.IOException;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.MultipleInputs;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
 
 public class Q3 
 {
     // columns city_temperatures.csv
+    private static final int REGION = 0;
     private static final int STATE = 2;
     private static final int CITY = 3;
+    private static final int YEAR = 6;
     private static final int TEMP = 7;
     private static final double INVALID = -99.0;
 
@@ -36,7 +52,7 @@ public class Q3
             String[] row = csvLine.split(",", -1);
             if (row.length <= TEMP) return;
 
-            String region = row[REGION].trim(), state = row[STATE].trim(), year = row[YEAR].trim();
+            String region = row[REGION].trim(), state = row[STATE].trim(), city = row[CITY].trim(), year = row[YEAR].trim();
             
             // no headers
             if (region.equals("Region")) return;
@@ -68,18 +84,18 @@ public class Q3
         private final Text outVal = new Text(); 
 
         @Override 
-        protected void map(LongWritable key, Text value, Context context)
+        protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException
         { 
             String line = value.toString();
             if (line.trim().isEmpty()) return;
 
             String[] csvRows = line.split(",", -1);
-            if (f.length <= CAP_CAPITAL) return;
+            if (csvRows.length <= CAP_CAPITAL) return;
 
             String state = csvRows[CAP_STATE], capital = csvRows[CAP_CAPITAL];
             if (state.equals("State") || state.isEmpty() || capital.isEmpty()) return;
 
-            if (f.length > CAP_TYPE && !clean(f[CAP_TYPE]).equals("state_capital")) return;
+            if (csvRows.length > CAP_TYPE && (csvRows[CAP_TYPE].trim()).equals("state_capital")) return;
 
             outKey.set(state);
             outVal.set("C\t" + capital);
@@ -93,27 +109,27 @@ public class Q3
         private final Text outVal = new Text();
 
         @Override 
-        protected void reduce(Text key, Iterable<Text> values, Context context)
+        protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException
         { 
-            string capital = null; 
+            String capital = null; 
             Map<String, double[]> capitalPerCity = new HashMap<>();
 
             for (Text value : values) 
             { 
                 String[] parts = value.toString().split("\t");
 
-                if (p[0].equals("C"))
+                if (parts[0].equals("C"))
                 { 
-                    capital = p[1];
-                } else if (p[0].equals("T"))
+                    capital = parts[1];
+                } else if (parts[0].equals("T"))
                 { 
-                    double[] acc = capitalPerCity.get(p[1]);
+                    double[] acc = capitalPerCity.get(parts[1]);
                     if (acc == null)
                     {
                         acc = new double[2];
-                        capitalPerCity.put(p[1], acc);
+                        capitalPerCity.put(parts[1], acc);
                     }
-                    acc[0] += Double.parseDouble(p[2]);
+                    acc[0] += Double.parseDouble(parts[2]);
                     acc[1] += 1;
                 }
             }
@@ -126,5 +142,37 @@ public class Q3
             outVal.set(String.format(Locale.US, "%.2f", acc[0] / acc[1]));
             context.write(outKey, outVal);
         }
+    }
+
+    public static void main(String[] args) throws IOException, InterruptedException, ClassNotFoundException
+    { 
+        Configuration config = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
+
+        if (otherArgs.length != 2) {
+            System.err.println("Usage: Q3 <in> <out>");
+            System.exit(2);
+        }
+
+        String in = otherArgs[0];
+        String out = otherArgs[1];
+
+        Job job = Job.getInstance(config, "Q3");
+        job.setJarByClass(Q3.class);
+
+        MultipleInputs.addInputPath(job, new Path(in, "city_temperature.csv"), TextInputFormat.class, TemperatureMapper.class);
+        MultipleInputs.addInputPath(job, new Path(in, "state-capitals.csv"), TextInputFormat.class, CapitalMapper.class);
+
+        job.setReducerClass(JoinReducer.class);
+        job.setNumReduceTasks(1);
+
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        FileOutputFormat.setOutputPath(job, new Path(out));
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
 }
