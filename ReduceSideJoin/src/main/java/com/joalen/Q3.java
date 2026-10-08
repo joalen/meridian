@@ -1,6 +1,9 @@
 package com.joalen;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 
 import javax.naming.Context;
 
@@ -80,6 +83,47 @@ public class Q3
 
             outKey.set(state);
             outVal.set("C\t" + capital);
+            context.write(outKey, outVal);
+        }
+    }
+
+    public static class JoinReducer extends Reducer<Text, Text, Text, Text>
+    { 
+        private final Text outKey = new Text();
+        private final Text outVal = new Text();
+
+        @Override 
+        protected void reduce(Text key, Iterable<Text> values, Context context)
+        { 
+            string capital = null; 
+            Map<String, double[]> capitalPerCity = new HashMap<>();
+
+            for (Text value : values) 
+            { 
+                String[] parts = value.toString().split("\t");
+
+                if (p[0].equals("C"))
+                { 
+                    capital = p[1];
+                } else if (p[0].equals("T"))
+                { 
+                    double[] acc = capitalPerCity.get(p[1]);
+                    if (acc == null)
+                    {
+                        acc = new double[2];
+                        capitalPerCity.put(p[1], acc);
+                    }
+                    acc[0] += Double.parseDouble(p[2]);
+                    acc[1] += 1;
+                }
+            }
+
+            if (capital == null) return;
+            double[] acc = capitalPerCity.get(capital);
+            if (acc == null || acc[1] == 0) return; 
+
+            outKey.set(key.toString() + "\t" + capital);
+            outVal.set(String.format(Locale.US, "%.2f", acc[0] / acc[1]));
             context.write(outKey, outVal);
         }
     }
