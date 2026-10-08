@@ -1,0 +1,205 @@
+package com.joalen;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.MultipleInputs;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
+
+public class ReduceSideJoin 
+{
+    // columns city_temperatures.csv
+    private static final int REGION = 0;
+    private static final int STATE = 2;
+    private static final int CITY = 3;
+    private static final int TEMP = 7;
+    private static final double INVALID = -99.0;
+
+    // columns state-capital.csv
+    private static final int CAP_STATE = 0;
+    private static final int CAP_CAPITAL = 1;
+
+    /** 
+     * Reads the city_temperature.csv and tags each valid temperature
+     */
+    public static class TemperatureMapper extends Mapper<LongWritable, Text, Text, Text>
+    { 
+        private final Text outKey = new Text(); 
+        private final Text outVal = new Text(); 
+
+        /** 
+         * Parses a line of temperature file and emits tagged reading. 
+         * 
+         * @param key byte offset of the line in the input file (unused)
+         * @param value one line of city_temperature.csv
+         * @param context used for emitting a (state, tagged) pair
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Mapper task from MapReduce interrupted from system
+         */
+        @Override 
+        protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException
+        {
+            String csvLine = value.toString(); 
+            if (csvLine.isEmpty()) return; 
+
+            String[] row = csvLine.split(",", -1);
+            if (row.length <= TEMP) return;
+
+            String region = row[REGION].trim(), state = row[STATE].trim(), city = row[CITY].trim();
+            
+            if (region.equals("Region")) return;
+
+            if (state.equals("State")) return; 
+            if (state.isEmpty()) return;
+
+            double temperature; 
+            try { 
+                temperature = Double.parseDouble(row[TEMP].trim());
+            } catch (NumberFormatException nfe)
+            { 
+                return;
+            }
+
+            if (temperature == INVALID) return; 
+
+            outKey.set(state);
+            outVal.set("T\t" + city + "\t" + temperature);
+            context.write(outKey, outVal);
+        }
+    }
+
+    /** 
+     * Reads in state-capitals.csv and tags each state's capital
+     */
+    public static class CapitalMapper extends Mapper<LongWritable, Text, Text, Text>
+    { 
+        private final Text outKey = new Text(); 
+        private final Text outVal = new Text(); 
+
+        /** 
+         * Parses a line of capitals file and emits a tagged capital key-value pairing
+         * 
+         * @param key byte offset of the line in the input file (unused)
+         * @param value one line of {@code state-capitals.csv}
+         * @param context used for emitting (state, tagged capital) pairings 
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Mapper task from MapReduce interrupted from system
+         */
+        @Override 
+        protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException
+        { 
+            String line = value.toString();
+            if (line.trim().isEmpty()) return;
+
+            String[] csvRows = line.split(",", -1);
+            if (csvRows.length <= CAP_CAPITAL) return;
+
+            String state = csvRows[CAP_STATE].trim(), capital = csvRows[CAP_CAPITAL].trim();
+            if (state.equals("State") || state.isEmpty() || capital.isEmpty()) return;
+
+            outKey.set(state);
+            outVal.set("C\t" + capital);
+            context.write(outKey, outVal);
+        }
+    }
+
+    /** 
+     * A Reduce-side join between capitals and temperature records for each state
+     */
+    public static class JoinReducer extends Reducer<Text, Text, Text, Text>
+    { 
+        private final Text outKey = new Text();
+        private final Text outVal = new Text();
+
+        /** 
+         * Joins and aggregates the capitals mapper and temperatures mapper
+         * 
+         * @param key state name
+         * @param values tagged {@code "C\t..."} and {@code "T\t..."} records for the state
+         * @param context used for emiting the (state/capital, average) pair
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Reducer task from MapReduce interrupted from system
+         */
+        @Override 
+        protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException
+        { 
+            String capital = null; 
+            Map<String, double[]> capitalPerCity = new HashMap<>();
+
+            for (Text value : values) 
+            { 
+                String[] parts = value.toString().split("\t");
+
+                if (parts[0].equals("C"))
+                { 
+                    capital = parts[1];
+                } else if (parts[0].equals("T"))
+                { 
+                    double[] acc = capitalPerCity.get(parts[1]);
+                    if (acc == null)
+                    {
+                        acc = new double[2];
+                        capitalPerCity.put(parts[1], acc);
+                    }
+                    acc[0] += Double.parseDouble(parts[2]);
+                    acc[1] += 1;
+                }
+            }
+
+            if (capital == null) return;
+            double[] acc = capitalPerCity.get(capital);
+            if (acc == null || acc[1] == 0) return; 
+
+            outKey.set(key.toString() + "\t" + capital);
+            outVal.set(String.format(Locale.US, "%.2f", acc[0] / acc[1]));
+            context.write(outKey, outVal);
+        }
+    }
+
+    public static void main(String[] args) throws IOException, InterruptedException, ClassNotFoundException
+    { 
+        Configuration config = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
+
+        if (otherArgs.length != 2) {
+            System.err.println("Usage: ReduceSideJoin <in> <out>");
+            System.exit(2);
+        }
+
+        String in = otherArgs[0];
+        String out = otherArgs[1];
+
+        Job job = Job.getInstance(config, "ReduceSideJoin");
+        job.setJarByClass(ReduceSideJoin.class);
+
+        MultipleInputs.addInputPath(job, new Path(in, "city_temperature.csv"), TextInputFormat.class, TemperatureMapper.class);
+        MultipleInputs.addInputPath(job, new Path(in, "state-capitals.csv"), TextInputFormat.class, CapitalMapper.class);
+
+        job.setReducerClass(JoinReducer.class);
+        job.setNumReduceTasks(1);
+
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        FileOutputFormat.setOutputPath(job, new Path(out));
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
