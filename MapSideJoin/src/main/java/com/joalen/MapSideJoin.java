@@ -27,7 +27,7 @@ public class MapSideJoin {
     private static final double INVALID = -99.0;
 
     /** 
-     * Performs map-side join between temperature data and state-capitals from the state-capitals.csv 
+     * Performs map-side join between temperature data and state-capitals from the dataset2.csv 
      * (converted into a hashmap), where we emit readings only for each state's capital city
      */
     public static class CapitalJoinMapper extends Mapper<LongWritable, Text, Text, Text> {
@@ -36,7 +36,7 @@ public class MapSideJoin {
         private final Text outVal = new Text();
     
         /**
-         * Loads in the distributed cache's copy of state-capital.csv and generates a 
+         * Loads in the distributed cache's copy of dataset2.csv and generates a 
          * hashmap of states -> capital to act as a fast lookup table
          * 
          * @param context used for accessing the distributed cache files
@@ -80,11 +80,11 @@ public class MapSideJoin {
         }
     
         /** 
-         * Emits a (sum, count) pair from a temperature key in the city_temperature.csv provided 
+         * Emits a (sum, count) pair from a temperature key in the dataset.csv provided 
          * we supply the state's capital city.
          * 
          * @param key byte offset of the line in the input file
-         * @param value a line from the city_temperature.csv
+         * @param value a line from the dataset.csv
          * @param context used for emitting (state/city, temperature/count) pair
          * 
          * @throws IOException system encounters an I/O error 
