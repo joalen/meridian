@@ -91,8 +91,6 @@ public class Q3
             String state = csvRows[CAP_STATE].trim(), capital = csvRows[CAP_CAPITAL].trim();
             if (state.equals("State") || state.isEmpty() || capital.isEmpty()) return;
 
-            if (csvRows.length > CAP_TYPE && (csvRows[CAP_TYPE].trim()).equals("state_capital")) return;
-
             outKey.set(state);
             outVal.set("C\t" + capital);
             context.write(outKey, outVal);
