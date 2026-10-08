@@ -47,7 +47,7 @@ public class MapSideJoin {
             URI[] cacheFiles = context.getCacheFiles();
     
             if (cacheFiles == null || cacheFiles.length == 0) {
-                throw new IOException("state-capitals.csv was not added to cache");
+                throw new IOException("dataset2.csv was not added to cache");
             }
     
             String localName = new Path(cacheFiles[0].getPath()).getName();
@@ -210,10 +210,10 @@ public class MapSideJoin {
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
 
-        FileInputFormat.addInputPath(job, new Path(in, "city_temperature.csv"));
+        FileInputFormat.addInputPath(job, new Path(in, "dataset.csv"));
         FileOutputFormat.setOutputPath(job, new Path(out));
         
-        job.addCacheFile(new URI(new Path(in, "state-capitals.csv").toString() + "#state-capitals.csv"));
+        job.addCacheFile(new URI(new Path(in, "dataset2.csv").toString() + "#dataset2.csv"));
 
         System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
