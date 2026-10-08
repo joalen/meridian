@@ -20,7 +20,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
-public class Q2 {
+public class MapSideJoin {
     private static final int STATE = 2;
     private static final int CITY = 3;
     private static final int TEMP = 7;
@@ -192,15 +192,15 @@ public class Q2 {
         String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
 
         if (otherArgs.length != 2) {
-            System.err.println("Usage: Q2 <in> <out>");
+            System.err.println("Usage: MapSideJoin <in> <out>");
             System.exit(2);
         }
 
         String in = otherArgs[0];
         String out = otherArgs[1];
 
-        Job job = Job.getInstance(config, "Q2");
-        job.setJarByClass(Q2.class);
+        Job job = Job.getInstance(config, "MapSideJoin");
+        job.setJarByClass(MapSideJoin.class);
 
         job.setMapperClass(CapitalJoinMapper.class);
         job.setCombinerClass(SumCountCombiner.class);
