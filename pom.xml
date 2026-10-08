@@ -15,6 +15,7 @@
     <module>FieldIndexer</module>
     <module>GroupByAverage</module>
     <module>MapSideJoin</module>
+    <module>ReduceSideJoin</module>
   </modules>
 
   <properties>
