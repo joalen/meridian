@@ -24,7 +24,7 @@ public class GroupByAverage
     private static final double INVALID = -99.0;
 
     /** 
-     * Parses out city_temperature.csv and yields partial (sum, count) pairs for West-region readings.
+     * Parses out dataset.csv and yields partial (sum, count) pairs for West-region readings.
      */
     public static class TemperatureMapper extends Mapper<LongWritable, Text, Text, Text>
     { 
@@ -32,7 +32,7 @@ public class GroupByAverage
         private final Text outVal = new Text(); 
 
         /** 
-         * Transforms a single CSV line from the city_temperature.csv
+         * Transforms a single CSV line from the dataset.csv
          * 
          * @param key byte offset of the line in the input file (unused)
          * @param value one line of the CSV file
@@ -173,7 +173,7 @@ public class GroupByAverage
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
 
-        FileInputFormat.addInputPath(job, new Path(in, "city_temperature.csv"));
+        FileInputFormat.addInputPath(job, new Path(in, "dataset.csv"));
         FileOutputFormat.setOutputPath(job, new Path(out));
 
         System.exit(job.waitForCompletion(true) ? 0 : 1);
