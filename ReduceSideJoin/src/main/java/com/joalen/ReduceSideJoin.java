@@ -18,7 +18,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
 
-public class Q3 
+public class ReduceSideJoin 
 {
     // columns city_temperatures.csv
     private static final int REGION = 0;
@@ -177,15 +177,15 @@ public class Q3
         String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
 
         if (otherArgs.length != 2) {
-            System.err.println("Usage: Q3 <in> <out>");
+            System.err.println("Usage: ReduceSideJoin <in> <out>");
             System.exit(2);
         }
 
         String in = otherArgs[0];
         String out = otherArgs[1];
 
-        Job job = Job.getInstance(config, "Q3");
-        job.setJarByClass(Q3.class);
+        Job job = Job.getInstance(config, "ReduceSideJoin");
+        job.setJarByClass(ReduceSideJoin.class);
 
         MultipleInputs.addInputPath(job, new Path(in, "city_temperature.csv"), TextInputFormat.class, TemperatureMapper.class);
         MultipleInputs.addInputPath(job, new Path(in, "state-capitals.csv"), TextInputFormat.class, CapitalMapper.class);
