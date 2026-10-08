@@ -26,15 +26,22 @@ public class Q2 {
     private static final int TEMP = 7;
     private static final double INVALID = -99.0;
 
+    /** 
+     * Performs map-side join between temperature data and state-capitals from the state-capitals.csv 
+     * (converted into a hashmap), where we emit readings only for each state's capital city
+     */
     public static class CapitalJoinMapper extends Mapper<LongWritable, Text, Text, Text> {
         private final Map<String, String> capitals = new HashMap<>();
         private final Text outKey = new Text();
         private final Text outVal = new Text();
     
-        private static String clean(String s) {
-            return s.trim().replace("\"", "");
-        }
-    
+        /**
+         * Loads in the distributed cache's copy of state-capital.csv and generates a 
+         * hashmap of states -> capital to act as a fast lookup table
+         * 
+         * @param context used for accessing the distributed cache files
+         * @throws IOException if no cache file was provided or it cannot be read
+         */
         @Override
         protected void setup(Context context) throws IOException, InterruptedException {
             URI[] cacheFiles = context.getCacheFiles();
@@ -52,29 +59,39 @@ public class Q2 {
     
                 while ((line = br.readLine()) != null) {
                     if (line.trim().isEmpty()) continue;
-                    String[] f = line.split(",", -1);
+                    String[] parts = line.split(",", -1);
     
                     if (first) {
                         first = false;
                         boolean isHeader = false;
     
-                        for (int i = 0; i < f.length; i++) {
-                            String h = clean(f[i]).toLowerCase(Locale.US);
+                        for (int i = 0; i < parts.length; i++) {
+                            String h = (parts[i].trim()).toLowerCase(Locale.US);
                             if (h.equals("state")) { stateCol = i; isHeader = true; }
                             else if (h.equals("capital")) { capitalCol = i; isHeader = true; }
                         }
                         if (isHeader) continue;
                     }
     
-                    if (f.length <= Math.max(stateCol, capitalCol)) continue;
-                    capitals.put(clean(f[stateCol]), clean(f[capitalCol]));
+                    if (parts.length <= Math.max(stateCol, capitalCol)) continue;
+                    capitals.put(parts[stateCol].trim(), parts[capitalCol].trim());
                 }
             }
         }
     
+        /** 
+         * Emits a (sum, count) pair from a temperature key in the city_temperature.csv provided 
+         * we supply the state's capital city.
+         * 
+         * @param key byte offset of the line in the input file
+         * @param value a line from the city_temperature.csv
+         * @param context used for emitting (state/city, temperature/count) pair
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Mapper task from MapReduce interrupted from system
+         */
         @Override
-        protected void map(LongWritable key, Text value, Context context)
-                throws IOException, InterruptedException {
+        protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
             String line = value.toString();
             if (line.isEmpty()) return;
     
@@ -102,12 +119,25 @@ public class Q2 {
         }
     }
 
+    /** 
+     * Combiner that helps merge "sum,count" strings from mapper into a single, unified 
+     * "sum,count" pair per key to alleviate shuffling traffic
+     */
     public static class SumCountCombiner extends Reducer<Text, Text, Text, Text> {
         private final Text outVal = new Text();
 
+        /** 
+         * Cumulative sum of partial sums and counts for one (state, city) key
+         * 
+         * @param key the {@code "state\tcity"} key representation
+         * @param values "sum,count" strings from the mapper stage
+         * @param context used for emitting combined "sum,count" values 
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Combiner task from MapReduce interrupted from system
+         */
         @Override
-        protected void reduce(Text key, Iterable<Text> values, Context context)
-                throws IOException, InterruptedException {
+        protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
             double sum = 0;
             long count = 0;
 
@@ -122,12 +152,25 @@ public class Q2 {
         }
     }
 
+    /** 
+     * Reducer that totals all sum,count values for a state,city pairing from combiner stage and 
+     * transforms that into average temperature.
+     */
     public static class AverageReducer extends Reducer<Text, Text, Text, Text> {
         private final Text outVal = new Text();
 
+        /** 
+         * Computes an average from sum,count value for a state,city pairing 
+         * 
+         * @param key the {@code "state\tcity"} key
+         * @param values "sum,count" strings to aggregate
+         * @param context used for emitting average temperature 
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Reducer task from MapReduce interrupted from system
+         */
         @Override
-        protected void reduce(Text key, Iterable<Text> values, Context context)
-                throws IOException, InterruptedException {
+        protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
             double sum = 0;
             long count = 0;
 
