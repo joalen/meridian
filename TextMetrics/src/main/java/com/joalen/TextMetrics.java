@@ -225,7 +225,7 @@ public class TextMetrics {
         String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs();
 
         if (otherArgs.length != 3) {
-            System.err.println("Usage: Q1Analysis <in> <out> <part>");
+            System.err.println("Usage: TextMetrics <in> <out> <part>");
             System.err.println("part: A (WordCount), B (TargetWords), or C (Pattern)");
             System.exit(2);
         }

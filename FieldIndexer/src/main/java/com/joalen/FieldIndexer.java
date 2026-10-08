@@ -253,7 +253,7 @@ public class FieldIndexer {
         String[] otherArgs = new GenericOptionsParser(config, args).getRemainingArgs(); 
 
         if (otherArgs.length != 3) { 
-            System.err.println("Usage: Q2Analysis <in> <out> <part>");
+            System.err.println("Usage: FieldIndexer <in> <out> <part>");
             System.err.println("part: A (InvertedIndex) or B (MostFrequentLongWord)");
             System.exit(2);
         }
