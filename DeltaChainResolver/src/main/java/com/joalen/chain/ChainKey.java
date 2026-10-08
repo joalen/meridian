@@ -7,6 +7,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+/**
+ * Composite key that chains an object it belongs to, and where in that
+ * chain's dependency order it sits (0 = root/full object, increasing
+ * toward the final delta).
+ */
 public final class ChainKey implements WritableComparable<ChainKey> {
     private Text chainRootId = new Text();
     private long chainPosition;
