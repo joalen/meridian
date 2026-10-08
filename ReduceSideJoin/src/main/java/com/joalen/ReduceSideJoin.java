@@ -20,19 +20,19 @@ import org.apache.hadoop.util.GenericOptionsParser;
 
 public class ReduceSideJoin 
 {
-    // columns city_temperatures.csv
+    // columns dataset.csv
     private static final int REGION = 0;
     private static final int STATE = 2;
     private static final int CITY = 3;
     private static final int TEMP = 7;
     private static final double INVALID = -99.0;
 
-    // columns state-capital.csv
+    // columns dataset2.csv
     private static final int CAP_STATE = 0;
     private static final int CAP_CAPITAL = 1;
 
     /** 
-     * Reads the city_temperature.csv and tags each valid temperature
+     * Reads the dataset.csv and tags each valid temperature
      */
     public static class TemperatureMapper extends Mapper<LongWritable, Text, Text, Text>
     { 
@@ -43,7 +43,7 @@ public class ReduceSideJoin
          * Parses a line of temperature file and emits tagged reading. 
          * 
          * @param key byte offset of the line in the input file (unused)
-         * @param value one line of city_temperature.csv
+         * @param value one line of dataset.csv
          * @param context used for emitting a (state, tagged) pair
          * 
          * @throws IOException system encounters an I/O error 
@@ -82,7 +82,7 @@ public class ReduceSideJoin
     }
 
     /** 
-     * Reads in state-capitals.csv and tags each state's capital
+     * Reads in dataset2.csv and tags each state's capital
      */
     public static class CapitalMapper extends Mapper<LongWritable, Text, Text, Text>
     { 
@@ -93,7 +93,7 @@ public class ReduceSideJoin
          * Parses a line of capitals file and emits a tagged capital key-value pairing
          * 
          * @param key byte offset of the line in the input file (unused)
-         * @param value one line of {@code state-capitals.csv}
+         * @param value one line of {@code dataset2.csv}
          * @param context used for emitting (state, tagged capital) pairings 
          * 
          * @throws IOException system encounters an I/O error 
@@ -187,8 +187,8 @@ public class ReduceSideJoin
         Job job = Job.getInstance(config, "ReduceSideJoin");
         job.setJarByClass(ReduceSideJoin.class);
 
-        MultipleInputs.addInputPath(job, new Path(in, "city_temperature.csv"), TextInputFormat.class, TemperatureMapper.class);
-        MultipleInputs.addInputPath(job, new Path(in, "state-capitals.csv"), TextInputFormat.class, CapitalMapper.class);
+        MultipleInputs.addInputPath(job, new Path(in, "dataset.csv"), TextInputFormat.class, TemperatureMapper.class);
+        MultipleInputs.addInputPath(job, new Path(in, "dataset2.csv"), TextInputFormat.class, CapitalMapper.class);
 
         job.setReducerClass(JoinReducer.class);
         job.setNumReduceTasks(1);
