@@ -5,8 +5,6 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-import javax.naming.Context;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
@@ -14,7 +12,6 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.MultipleInputs;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
@@ -27,20 +24,31 @@ public class Q3
     private static final int REGION = 0;
     private static final int STATE = 2;
     private static final int CITY = 3;
-    private static final int YEAR = 6;
     private static final int TEMP = 7;
     private static final double INVALID = -99.0;
 
     // columns state-capital.csv
     private static final int CAP_STATE = 0;
     private static final int CAP_CAPITAL = 1;
-    private static final int CAP_TYPE = 2;
 
+    /** 
+     * Reads the city_temperature.csv and tags each valid temperature
+     */
     public static class TemperatureMapper extends Mapper<LongWritable, Text, Text, Text>
     { 
         private final Text outKey = new Text(); 
         private final Text outVal = new Text(); 
 
+        /** 
+         * Parses a line of temperature file and emits tagged reading. 
+         * 
+         * @param key byte offset of the line in the input file (unused)
+         * @param value one line of city_temperature.csv
+         * @param context used for emitting a (state, tagged) pair
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Mapper task from MapReduce interrupted from system
+         */
         @Override 
         protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException
         {
@@ -50,13 +58,12 @@ public class Q3
             String[] row = csvLine.split(",", -1);
             if (row.length <= TEMP) return;
 
-            String region = row[REGION].trim(), state = row[STATE].trim(), city = row[CITY].trim(), year = row[YEAR].trim();
+            String region = row[REGION].trim(), state = row[STATE].trim(), city = row[CITY].trim();
             
-            // no headers
             if (region.equals("Region")) return;
 
             if (state.equals("State")) return; 
-            if (state.isEmpty() || year.isEmpty()) return;
+            if (state.isEmpty()) return;
 
             double temperature; 
             try { 
@@ -74,11 +81,24 @@ public class Q3
         }
     }
 
+    /** 
+     * Reads in state-capitals.csv and tags each state's capital
+     */
     public static class CapitalMapper extends Mapper<LongWritable, Text, Text, Text>
     { 
         private final Text outKey = new Text(); 
         private final Text outVal = new Text(); 
 
+        /** 
+         * Parses a line of capitals file and emits a tagged capital key-value pairing
+         * 
+         * @param key byte offset of the line in the input file (unused)
+         * @param value one line of {@code state-capitals.csv}
+         * @param context used for emitting (state, tagged capital) pairings 
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Mapper task from MapReduce interrupted from system
+         */
         @Override 
         protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException
         { 
@@ -97,11 +117,24 @@ public class Q3
         }
     }
 
+    /** 
+     * A Reduce-side join between capitals and temperature records for each state
+     */
     public static class JoinReducer extends Reducer<Text, Text, Text, Text>
     { 
         private final Text outKey = new Text();
         private final Text outVal = new Text();
 
+        /** 
+         * Joins and aggregates the capitals mapper and temperatures mapper
+         * 
+         * @param key state name
+         * @param values tagged {@code "C\t..."} and {@code "T\t..."} records for the state
+         * @param context used for emiting the (state/capital, average) pair
+         * 
+         * @throws IOException system encounters an I/O error 
+         * @throws InterruptedException Reducer task from MapReduce interrupted from system
+         */
         @Override 
         protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException
         { 
