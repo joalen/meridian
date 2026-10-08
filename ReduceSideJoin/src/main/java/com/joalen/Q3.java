@@ -7,8 +7,6 @@ import java.util.Map;
 
 import javax.naming.Context;
 
-import java.io.IOException;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
@@ -57,14 +55,12 @@ public class Q3
             // no headers
             if (region.equals("Region")) return;
 
-            // exact matches
-            if (!region.equals("West")) return;
-
+            if (state.equals("State")) return; 
             if (state.isEmpty() || year.isEmpty()) return;
 
             double temperature; 
             try { 
-                temperature = Double.parseDouble(row[TEMP]);
+                temperature = Double.parseDouble(row[TEMP].trim());
             } catch (NumberFormatException nfe)
             { 
                 return;
