@@ -21,11 +21,11 @@ Produces `TextMetrics/target/TextMetrics.jar`.
 
 ## Load the data
 ```sh
-curl -o q1_dataset.txt -L https://www.gutenberg.org/cache/epub/2701/pg2701.txt
-docker cp q1_dataset.txt namenode:/tmp/q1_dataset.txt
+curl -o dataset.txt -L https://www.gutenberg.org/cache/epub/2701/pg2701.txt
+docker cp dataset.txt namenode:/tmp/dataset.txt
 docker exec -e JAVA_HOME=/usr/lib/jvm/jre/ namenode sh -c \
   '/opt/hadoop/bin/hdfs dfs -mkdir -p /inputA && \
-   /opt/hadoop/bin/hdfs dfs -put -f /tmp/q1_dataset.txt /inputA/'
+   /opt/hadoop/bin/hdfs dfs -put -f /tmp/dataset.txt /inputA/'
 ```
 Adjust `JAVA_HOME` to match your container.
 
@@ -34,18 +34,18 @@ Adjust `JAVA_HOME` to match your container.
 docker cp TextMetrics/target/TextMetrics.jar resourcemanager:/tmp/TextMetrics.jar
 
 # Usage: hadoop jar TextMetrics.jar <in> <out> <part>
-docker exec -it resourcemanager hadoop jar /tmp/TextMetrics.jar /inputA /q1_output_A A
-docker exec -it resourcemanager hadoop jar /tmp/TextMetrics.jar /inputA /q1_output_B B
-docker exec -it resourcemanager hadoop jar /tmp/TextMetrics.jar /inputA /q1_output_C C
+docker exec -it resourcemanager hadoop jar /tmp/TextMetrics.jar /inputA /output_A A
+docker exec -it resourcemanager hadoop jar /tmp/TextMetrics.jar /inputA /output_B B
+docker exec -it resourcemanager hadoop jar /tmp/TextMetrics.jar /inputA /output_C C
 ```
 
 ## View / export results
 ```sh
-docker exec resourcemanager /opt/hadoop/bin/hdfs dfs -cat /q1_output_A/part-r-00000 > q1_output_A.txt
+docker exec resourcemanager /opt/hadoop/bin/hdfs dfs -cat /output_A/part-r-00000 > output_A.txt
 ```
-Repeat with `q1_output_B` and `q1_output_C`.
+Repeat with `output_B` and `output_C`.
 
 ## Notes
 - The output directory must **not** already exist. To rerun:
-  `docker exec resourcemanager /opt/hadoop/bin/hdfs dfs -rm -r /q1_output_A`
+  `docker exec resourcemanager /opt/hadoop/bin/hdfs dfs -rm -r /output_A`
 - An invalid `<part>` exits with code 2.
