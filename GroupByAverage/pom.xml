@@ -5,10 +5,10 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.joalen</groupId>
-  <artifactId>mapreduce-assignment-2-partI</artifactId>
+  <artifactId>GroupByAverage</artifactId>
   <version>1</version>
 
-  <name>mapreduce-assignment-2-partI</name>
+  <name>GroupByAverage</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -32,7 +32,7 @@
   </dependencies>
 
   <build>
-    <finalName>Q1</finalName>
+    <finalName>GroupByAverage</finalName>
     <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
       <plugins>
         <!-- clean lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#clean_Lifecycle -->
@@ -58,7 +58,7 @@
             <configuration>
                 <archive>
                     <manifest>
-                        <mainClass>com.joalen.Q1</mainClass>
+                        <mainClass>com.joalen.GroupByAverage</mainClass>
                     </manifest>
                 </archive>
             </configuration>
