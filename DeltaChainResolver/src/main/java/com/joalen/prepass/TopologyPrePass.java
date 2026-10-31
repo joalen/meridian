@@ -73,6 +73,7 @@ public final class TopologyPrePass {
                 if (m.matches()) {
                     reportedHisto.put(Integer.parseInt(m.group(1)), Long.parseLong(m.group(2)));
                 }
+                // anything else (e.g. "...pack: ok") is ignored
             }
         }
 
@@ -148,7 +149,8 @@ public final class TopologyPrePass {
      * is already known (or a non-delta object), then fills in root/depth for
      * the whole path on the way back down.
      */
-    private static void resolve(String sha, Map<String, Entry> entries, Map<String, String> rootOf, Map<String, Integer> depthOf) {
+    private static void resolve(String sha, Map<String, Entry> entries,
+                                Map<String, String> rootOf, Map<String, Integer> depthOf) {
         if (rootOf.containsKey(sha)) return;
 
         Deque<String> path = new ArrayDeque<>();
@@ -196,8 +198,7 @@ public final class TopologyPrePass {
         e.sha = f[0];
         e.type = f[1];
         e.size = Long.parseLong(f[2]);
-        
-        // f[3] = size in pack (not used atm)
+        // f[3] = size in pack (unused)
         e.offset = Long.parseLong(f[4]);
         if (f.length == 7) {
             e.reportedDepth = Integer.parseInt(f[5]);

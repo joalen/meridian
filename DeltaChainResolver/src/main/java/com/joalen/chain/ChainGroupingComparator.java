@@ -4,22 +4,22 @@ import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.io.WritableComparator;
 
 /**
- * Decides on which keys are considered within the "same group" for a single
- * reduce() operation. Only compares on chainRootId, where if accidentally
- * comparing full key (including chainPosition), then every delta in chain
- * gets its reduce() call with one value rather than one reduce() call per
- * chain and deltas as an Iterable.
+ * Decides WHICH KEYS SHARE ONE reduce() CALL. Compares chainRootId only, so
+ * all positions of a chain arrive as one ordered Iterable.
+ *
+ * If this compared the full key, every distinct (root, position) would get
+ * its own reduce() call with a single value and nothing would error.
  */
 public class ChainGroupingComparator extends WritableComparator {
-    protected ChainGroupingComparator() {
-        super(ChainKey.class, true);
+    public ChainGroupingComparator() {
+        super(ChainKey.class, true); // true: instantiate keys so compare() gets objects
     }
 
     @Override
+    @SuppressWarnings("rawtypes")
     public int compare(WritableComparable a, WritableComparable b) {
-        ChainKey k1 = (ChainKey) a;
-        ChainKey k2 = (ChainKey) b;
-
-        return k1.getChainRootId().compareTo(k2.getChainRootId());
+        ChainKey left = (ChainKey) a;
+        ChainKey right = (ChainKey) b;
+        return left.getChainRootId().compareTo(right.getChainRootId());
     }
 }
