@@ -1,22 +1,71 @@
-# DeltaChainResolver
+# DeltaChainResolver (an exploration into parallel delta chain resolutions)
 
-Parallel delta-chain resolution for git pack files, done with Hadoop MapReduce. Part of the Meridian repo; the root README has the cluster setup and the story behind the five stages.
+**Status: all five stages implemented and verified on the cluster.**
 
-Git stores many objects in a pack as a delta against a base object, which may itself be a delta, and so on. Rebuilding one object means walking its chain from the root outward, in order. A real pack has thousands of independent chains, so the chains can be resolved in parallel. This module does that with a secondary sort: the mapper tags each object with its chain root and position, a partitioner and grouping comparator send a whole chain to one reducer, and the shuffle sort hands it over in dependency order.
+Parallel delta-chain resolution for git pack files, done with Hadoop MapReduce. Part of the Meridian repo; the root README has the cluster setup.
 
-Test data: the Lua repository, repacked into one pack. 28,004 objects form 6,472 chains (21,532 deltas hanging off 6,472 full-content roots).
+One of the interesting things about git is how it sends objects for push, pull, rebase and so on: through pack files. Within a pack file are delta chains. Each object may be stored not in full, but as a diff against a "base" object, which may itself be a diff against another base, and so on. Reconstructing any single object means walking its chain from the root outward, strictly in order. However, real pack files usually contain thousands of independent chains, all resolvable in parallel.
 
-## Stages
+That is a natural fit for MapReduce's secondary sort: the mapper tags each object with `(chainRootID, chainPosition)`, a custom partitioner and grouping comparator route a whole chain to one reducer, and Hadoop's shuffle sort delivers it in dependency order.
 
-| # | Stage | Sort key | Verified by |
-|---|-------|----------|-------------|
-| 1 | Baseline secondary sort | root, position | Every chain arrives in position order; every object rebuilds and passes SHA-1 |
-| 2 | Multi-field composite sort | root, position, timestamp | Timestamps cross-checked against `git ls-tree` / `git cat-file` |
-| 3 | Mixed-direction sort | root, position asc, size desc, timestamp | Reducer flags any size that goes up within a position |
-| 4 | Total order across reducers | origin, root, position, size desc, timestamp | Origins never decrease across `part-r-*`; ranges disjoint |
-| 5 | Bounded top-K per chain | same as 4 | Every chain's top-K matches sort-then-truncate |
+## The data
 
-Three classes do three separate jobs and are registered separately in the driver: `ChainPartitioner` (which reducer), `ChainSortComparator` (record order), `ChainGroupingComparator` (which records share one `reduce()` call).
+The test repository is Lua: `28,004` objects in one repacked pack, `5,938` commits. On the cluster those objects form `6,472` chains: `21,532` deltas hanging off `6,472` full-content roots. The longest chain history spans 29 years.
+
+## The five stages
+
+| # | Stage | Key (sort order) | What it forced me to learn | Verified by |
+|---|-------|------------------|----------------------------|-------------|
+| 1 | Baseline secondary sort | root, position | Partitioner, sort comparator and grouping comparator are three separate classes with three separate jobs | Every chain delivered in position order; every object reconstructed and SHA-1 checked (`VERIFIED` 28,004, `FAILED` 0) |
+| 2 | Multi-field composite sort | root, position, **timestamp** | What *groups* records (root) is different from what *orders* them (all fields) | Timestamps cross-checked against `git ls-tree`/`git cat-file`; 36 residual ties in 17 chains |
+| 3 | Mixed-direction sort | root, position asc, **size desc**, timestamp | A hand-rolled `compareTo` that mixes directions; swap operands, never subtract | Reducer flags size going *up* within a position; in a local test, a deliberately flipped comparator was flagged in 297 chains; ties fell to 3 |
+| 4 | Total order across reducers | **origin**, root, position, size desc, timestamp | `TotalOrderPartitioner` with a sampled boundary file; reducer 0 holds the oldest chains | Origins never decrease across `part-r-*`; 0 order violations; ranges disjoint |
+| 5 | Bounded top-K per chain | (same as 4) | A heap that keeps the K worst-so-far instead of sorting everything | Every chain's top-5 recomputed independently by sort-then-truncate: all 6,472 match |
+
+The three shuffle classes are registered separately in the driver: `ChainPartitioner` (which reducer), `ChainSortComparator` (record order), `ChainGroupingComparator` (which records share one `reduce()` call).
+
+### Stage 1 - baseline secondary sort
+Composite key `(chainRootID, chainPosition)`. `ChainPartitioner` hashes the root alone, `ChainGroupingComparator` compares the root alone, and the key's own ordering sorts by the full key. Each `reduce()` call gets one chain, already in dependency order, with no in-memory sort. The reducer applies each delta to its already-rebuilt base and checks `sha1("<type> <size>\0" + content)`.
+
+### Stage 2 - multi-field composite sort
+The key gains `objectTimestamp`: the committer time of the earliest commit that reaches the object (found by walking commits oldest-first and letting the first one claim each tree). Where chain position alone ties, the timestamp orders the records. Ties that remain (same position, same timestamp) are counted, not hidden.
+
+### Stage 3 - mixed-direction sort
+Within a chain: position ascending (dependency order must go forward), then object size *descending* so the heaviest patch at each depth arrives first. Records at the same position never depend on each other, so this extra order is free. Descending is `Long.compare(other, this)`; `other - this` is the classic overflow bug.
+
+### Stage 4 - total order across reducers
+Stages 1-3 only order records inside one reducer. Here the final output, read start to end across all reducers, is in chain-age order.
+- A new leading key field, `chainOrigin` (age of the chain's oldest object), is identical on every record of a chain, so it orders chains without splitting any. A pre-pass computes it, since a mapper sees one line at a time.
+- `ChainSampler` reservoir-samples the input and writes the partition-boundary file (`numReducers - 1` keys) that `TotalOrderPartitioner` reads.
+- **Boundaries must be chain *starts*, not real records.** A boundary like `(origin, root, position 5)` would put positions 0-4 of a chain on one reducer and 5+ on the next. This was tested: with record-key boundaries, 3 chains were split and 343 objects failed verification.
+- Hadoop's `InputSampler` was not usable because it samples the *input* format's keys (byte offsets), while the file must hold *map-output* keys.
+- On the cluster with 2 reducers: reducer 0 holds chains whose oldest object dates from 1993-07-28 to 2002-08-16 (2,160 chains), reducer 1 from 2002-08-20 to 2026-10 (4,312 chains). In a local comparison run, hash partitioning gave every reducer the whole 1993..2026 span.
+
+### Stage 5 - bounded top-K per chain
+`-Dchain.topk=K` swaps in `ChainTopKReducer`, which reports each chain's K most expensive deltas (largest patches) through `BoundedTopK`, a heap whose head is the worst item kept. Each delta is compared with only that head: add, replace, or discard. Nothing is sorted in full and then truncated.
+- Memory per chain is O(K) instead of O(chain), and since patch size is already in the key, the mapper stops sending payloads. On the cluster the map output fell from 16.87 MB to 4.56 MB for the same 28,004 records.
+- Trade-off: this reducer does not rebuild or SHA-check anything. Stages 1-4 proved the objects rebuild; Stage 5 is the cost report.
+- The top 5 patches per chain carry 1,420,913 of the 3,918,045 patch bytes (36%). `BoundedTopKSelfCheck` compares the heap with sort-then-truncate on 1,920 randomized trials full of ties, and `TopKVerifier` recomputes the whole job's answer independently.
+
+## How the data gets to the cluster
+
+Hadoop cannot read a `.pack` directly, so a few plain Java tools prepare the input. All of them run without a cluster.
+
+```
+git repack -a -d -f --depth=250 --window=250        one big pack, long chains
+git verify-pack -v pack-*.idx > verify.txt          object, type, size, offset, depth, base
+        |
+        v  TopologyPrePass verify.txt topology.tsv [pack]     chain root + position per object,
+        |                                                      optional base64 payload column
+        v  PayloadVerifier / PackVerifier                      prove every object rebuilds, SHA-1 exact
+        |
+        v  TimestampAnnotator                                  + when each object entered history   (Stage 2)
+        v  ChainOriginAnnotator                                + age of each chain's oldest object (Stage 4)
+        |
+        v  hdfs dfs -put  -->  hadoop jar DeltaChainResolver.jar ...
+```
+
+The columns grow stage by stage: 7 (topology), 8 (+ payload), 9 (+ object timestamp), 10 (+ chain origin). The mapper accepts all four.
 
 ## Prerequisites
 
@@ -32,15 +81,12 @@ From the repository root:
 mvn -pl DeltaChainResolver -am clean package
 ```
 
-Produces `DeltaChainResolver/target/DeltaChainResolver.jar`. The pre-pass tools below are in the same jar and run with plain `java -cp`, no cluster needed.
+Produces `DeltaChainResolver/target/DeltaChainResolver.jar`. The pre-pass tools are in the same jar and run with plain `java -cp`, no cluster needed.
 
 ## Prepare the input
 
-Hadoop cannot read a `.pack` directly, so a few local tools produce a TSV first.
-
 ```sh
 # 1. In a clone of the repo you want to analyze: one big pack with long chains
-git clone <repository>.git && cd <repository>
 git repack -a -d -f --depth=250 --window=250
 git verify-pack -v .git/objects/pack/pack-*.idx > verify.txt
 
@@ -58,8 +104,6 @@ java -cp DeltaChainResolver.jar com.joalen.prepass.TimestampAnnotator topology.t
 # 5. Stage 4: add chain origin (10 columns)
 java -cp DeltaChainResolver.jar com.joalen.prepass.ChainOriginAnnotator topology_ts.tsv topology_origin.tsv
 ```
-
-Columns grow by stage: 7 (topology), 8 (+ payload), 9 (+ object timestamp), 10 (+ chain origin). The mapper accepts all four.
 
 ## Load the data
 
@@ -109,7 +153,7 @@ In total-order mode, read `part-r-00000`, `part-r-00001`, ... in order and the c
 
 The driver also prints this project's counters on stdout as `COUNTER <name> <value>`, plus `MAP_OUTPUT_BYTES` and `MAP_OUTPUT_RECORDS`.
 
-## View / export results
+To export results:
 
 ```sh
 docker exec resourcemanager /opt/hadoop/bin/hdfs dfs -cat '/output_G/part-r-*' > output_G.txt
@@ -117,10 +161,10 @@ docker exec resourcemanager /opt/hadoop/bin/hdfs dfs -cat '/output_G/part-r-*' >
 
 ## Verify
 
-Expected on the Lua test data (your numbers may vary slightly with a different repack):
+Expected on the Lua test data (numbers will differ slightly with a different repack):
 
 - Stages 1-4: `VERIFIED` 28,004, no `FAILED` counter, `GROUP_ORDER_VIOLATIONS` 0, `OUT_OF_ORDER_GROUPS` 0
-- Stage 4 with 2 reducers: reducer 0 holds the oldest chains (1993-07-28 to 2002-08-16, 2,160 chains), reducer 1 the rest (2002-08-20 onward, 4,312 chains)
+- Stage 4 with 2 reducers: reducer 0 holds the oldest chains (2,160), reducer 1 the rest (4,312)
 - Stage 5: map output drops from 16.87 MB to 4.56 MB for the same 28,004 records
 
 Independent checks that need no cluster:
@@ -131,14 +175,16 @@ cat output_H.txt > merged.txt   # all part-r-* files
 java -cp DeltaChainResolver.jar com.joalen.pack.TopKVerifier topology_origin.tsv merged.txt 5
 ```
 
-`TopKVerifier` should report all 6,472 chains match. `BoundedTopKSelfCheck` compares the heap with sort-then-truncate on randomized trials full of ties.
+`TopKVerifier` should report all 6,472 chains match.
 
-## Notes
+## Things worth remembering
 
 - The output directory (and `<out>_partitions`) must not already exist. Clear with `hdfs dfs -rm -r <dir>`.
-- A counter that was never incremented is absent, so "no `FAILED` line" means 0. Check the output is non-empty before trusting that.
-- Partition boundaries are chain starts, never real records. A boundary inside a chain would split it across reducers and break reconstruction.
-- `git repack` with many threads is not deterministic: the same repo gave 6,465 chains in one run and 6,472 in another. Compare against the TSV you actually loaded.
-- Stage 5 does not rebuild or SHA-check anything; Stages 1-4 already proved the objects rebuild.
-- Hadoop mutates the same key object while you iterate `values`, so read `key.getChainPosition()` etc. inside the loop.
-- `git verify-pack` reports a delta's delta-stream length as its size, not the rebuilt size.
+- Hadoop mutates the same key object while you iterate `values`; at `reduce()` entry the key already holds the group's first key.
+- A counter that was never incremented is simply absent. "No `FAILED` line" means 0, but only trust it after checking the output is non-empty.
+- `git verify-pack` reports a delta's *delta-stream* length as its size, not the rebuilt size.
+- `git repack` with many threads is not deterministic (repacking the same repository gave 6,465 chains in one run and 6,472 in another), so always compare against the TSV you actually loaded.
+
+## Possible future work
+
+Other version-control stores use different delta formats (Mercurial revlogs, SVN deltas). The same chain-per-reducer idea applies once a pre-pass can emit `(root, position)` for them.
