@@ -25,10 +25,21 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
     private static final int FIELDS_WITH_TIMESTAMP = 9;
     private static final int FIELDS_WITH_ORIGIN = 10;
 
-    public enum MapperCounters { RECORDS, MALFORMED, WITH_PAYLOAD, WITH_TIMESTAMP, WITH_ORIGIN }
+    public enum MapperCounters { RECORDS, MALFORMED, WITH_PAYLOAD, WITH_TIMESTAMP, WITH_ORIGIN, PAYLOAD_DROPPED }
+
+    private boolean dropPayload;
 
     private final ChainKey outKey = new ChainKey();
     private final Text outVal = new Text();
+
+    /**
+     * With -Dchain.topk=K (Stage 5) the reducer only ranks patch sizes, which are in
+     * the key already, so the payload (the bulk of every line) is not shuffled.
+     */
+    @Override
+    protected void setup(Context context) {
+        dropPayload = context.getConfiguration().getInt("chain.topk", 0) > 0;
+    }
 
     /**
      * @param key byte offset of the line (unused)
@@ -70,7 +81,11 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
 
         outKey.set(origin, f[0], position, timestamp, size); // size stays in the value too
         // sha, baseSha, type, size, offset [, payload]
-        String payload = f.length >= FIELDS_WITH_PAYLOAD ? "\t" + f[7] : "";
+        boolean sendPayload = f.length >= FIELDS_WITH_PAYLOAD && !dropPayload;
+        String payload = sendPayload ? "\t" + f[7] : "";
+        if (f.length >= FIELDS_WITH_PAYLOAD && dropPayload) {
+            context.getCounter(MapperCounters.PAYLOAD_DROPPED).increment(1);
+        }
         outVal.set(f[2] + "\t" + f[3] + "\t" + f[4] + "\t" + f[5] + "\t" + f[6] + payload);
 
         if (f.length >= FIELDS_WITH_PAYLOAD) {
