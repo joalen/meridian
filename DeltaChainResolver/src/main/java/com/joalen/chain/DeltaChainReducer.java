@@ -24,7 +24,7 @@ import com.joalen.pack.ChainResolver;
  *   rootSha \t "n=<records> maxPos=<d> ordered=<bool> verified=<k> failed=<f> positions=0x1,1x3,..
  *                [oldest=<iso> newest=<iso> ties=<t>]"
  * (the bracketed part appears only for 9-column input), with
- * "patchBytes=<sum> biggestPatch=<size>@<pos>:<sha7>" before it (delta records only).
+ * "origin=<epoch> patchBytes=<sum> biggestPatch=<size>@<pos>:<sha7>" before it (delta records only).
  * "ordered" means the shuffle delivered (position asc, size DESC, timestamp asc);
  * "ties" counts records whose (position, size, timestamp) equals the previous
  * record's, i.e. the residual order the key cannot decide.
@@ -43,12 +43,20 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
         GROUPS, RECORDS, OUT_OF_ORDER_GROUPS,
         VERIFIED, FAILED, DELTAS_APPLIED, NO_PAYLOAD,
         TIED_RECORDS, TIMESTAMPED_RECORDS,
-        SIZE_MISMATCH, PATCH_BYTES
+        SIZE_MISMATCH, PATCH_BYTES,
+        GROUP_ORDER_VIOLATIONS, ORIGIN_MISMATCH
     }
 
     private static final int VALUE_FIELDS = 6;
 
     private final ChainResolver resolver = new ChainResolver();
+
+    // Remembered ACROSS reduce() calls: within one reducer the chains must arrive
+    // in ascending (origin, root) order. This is the per-reducer half of the
+    // Stage 4 total order; the cross-reducer half is a property of the part files.
+    private boolean haveLastGroup;
+    private long lastGroupOrigin;
+    private String lastGroupRoot;
     private final Text outKey = new Text();
     private final Text outVal = new Text();
 
@@ -56,7 +64,21 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
     protected void reduce(ChainKey key, Iterable<Text> values, Context context)
             throws IOException, InterruptedException {
         String root = key.getChainRootId();
+        long origin = key.getChainOrigin(); // key already holds the group's first record
         resolver.reset();
+
+        if (haveLastGroup) {
+            int c = Long.compare(origin, lastGroupOrigin);
+            if (c == 0) {
+                c = root.compareTo(lastGroupRoot);
+            }
+            if (c <= 0) {
+                context.getCounter(ReducerCounters.GROUP_ORDER_VIOLATIONS).increment(1);
+            }
+        }
+        haveLastGroup = true;
+        lastGroupOrigin = origin;
+        lastGroupRoot = root;
 
         long records = 0;
         long verified = 0;
@@ -186,6 +208,11 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
            .append(" verified=").append(verified)
            .append(" failed=").append(failed)
            .append(" positions=").append(runs);
+        // origin (the key's chainOrigin) must equal the oldest object timestamp seen in the chain
+        if (origin != 0 && timestamped > 0 && origin != minTs) {
+            context.getCounter(ReducerCounters.ORIGIN_MISMATCH).increment(1);
+        }
+        out.append(" origin=").append(origin);
         out.append(" patchBytes=").append(patchBytes);
         if (biggestPatchSha != null) {
             out.append(" biggestPatch=").append(biggestPatch).append('@').append(biggestPatchPos)

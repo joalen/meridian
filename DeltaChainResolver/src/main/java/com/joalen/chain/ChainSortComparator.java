@@ -8,7 +8,7 @@ import org.apache.hadoop.io.WritableComparator;
  * the third of the three separate shuffle classes:
  *
  *   ChainPartitioner         which reducer a key goes to      (root)
- *   ChainSortComparator      the order records are sorted in  (root asc, position asc, size DESC, timestamp asc)
+ *   ChainSortComparator      the order records are sorted in  (origin asc, root asc, position asc, size DESC, timestamp asc)
  *   ChainGroupingComparator  which sorted neighbors form one  (root)
  *                            reduce() call
  *
@@ -19,10 +19,11 @@ import org.apache.hadoop.io.WritableComparator;
  * other, so this extra ordering is free to choose; it makes the biggest patch
  * at each depth arrive first. Registered with job.setSortComparatorClass.
  *
- * It must agree with the grouping comparator on one point: keys it considers
- * different only in position/timestamp must still sort next to each other
- * (root is compared first, so they do), otherwise one chain would be cut into
- * several groups.
+ * It must agree with the grouping comparator on one point: all keys of one chain
+ * must sort next to each other, otherwise one chain would be cut into several
+ * groups. They do because origin is a function of root (every record of a chain
+ * has the same origin), so (origin, root) never interleaves two chains.
+ * TotalOrderPartitioner also uses THIS comparator to place keys in ranges.
  */
 public class ChainSortComparator extends WritableComparator {
     public ChainSortComparator() {
@@ -35,7 +36,14 @@ public class ChainSortComparator extends WritableComparator {
         ChainKey left = (ChainKey) a;
         ChainKey right = (ChainKey) b;
 
-        int c = left.getChainRootId().compareTo(right.getChainRootId());
+        // Stage 4: the chain's origin time leads, so chains order against each
+        // other (this is the field a range partitioner cuts on). It is the same
+        // for every record of a chain, so it never separates one chain's records.
+        int c = Long.compare(left.getChainOrigin(), right.getChainOrigin());
+        if (c != 0) {
+            return c;
+        }
+        c = left.getChainRootId().compareTo(right.getChainRootId());
         if (c != 0) {
             return c;
         }
