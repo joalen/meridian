@@ -21,7 +21,12 @@ import com.joalen.pack.ChainResolver;
  * NO_PAYLOAD and skipped rather than failing the job.)
  *
  * Output per chain:
- *   rootSha \t "n=<records> maxPos=<d> ordered=<bool> verified=<k> failed=<f> positions=0x1,1x3,..."
+ *   rootSha \t "n=<records> maxPos=<d> ordered=<bool> verified=<k> failed=<f> positions=0x1,1x3,..
+ *                [oldest=<iso> newest=<iso> ties=<t>]"
+ * (the bracketed part appears only for 9-column input). "ordered" means
+ * (position, timestamp) never went backwards; "ties" counts records whose
+ * (position, timestamp) equals the previous record's, i.e. the residual
+ * order the 3-field key cannot decide.
  * plus " firstError=<text>" when something failed.
  *
  * Hadoop detail: while iterating `values`, `key` is updated in place, so
@@ -35,7 +40,8 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
 
     public enum ReducerCounters {
         GROUPS, RECORDS, OUT_OF_ORDER_GROUPS,
-        VERIFIED, FAILED, DELTAS_APPLIED, NO_PAYLOAD
+        VERIFIED, FAILED, DELTAS_APPLIED, NO_PAYLOAD,
+        TIED_RECORDS, TIMESTAMPED_RECORDS
     }
 
     private static final int VALUE_FIELDS = 6;
@@ -57,6 +63,11 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
         String firstError = null;
 
         long lastPos = Long.MIN_VALUE;
+        long lastTs = Long.MIN_VALUE;
+        long tied = 0;          // records whose (position, timestamp) equals the previous record's
+        long minTs = Long.MAX_VALUE;
+        long maxTs = Long.MIN_VALUE;
+        long timestamped = 0;
         long runPos = Long.MIN_VALUE;
         long runCount = 0;
         boolean ordered = true;
@@ -64,12 +75,24 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
 
         for (Text value : values) {
             long pos = key.getChainPosition(); // key was updated in place for this value
+            long ts = key.getObjectTimestamp();
             records++;
 
-            if (pos < lastPos) {
+            // Order is (position, timestamp) ascending. A timestamp going down
+            // within one position is as wrong as a position going down.
+            if (pos < lastPos || (pos == lastPos && ts < lastTs)) {
                 ordered = false;
             }
+            if (pos == lastPos && ts == lastTs) {
+                tied++;
+            }
             lastPos = pos;
+            lastTs = ts;
+            if (ts != 0) {
+                timestamped++;
+                minTs = Math.min(minTs, ts);
+                maxTs = Math.max(maxTs, ts);
+            }
 
             if (pos == runPos) {
                 runCount++;
@@ -119,6 +142,8 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
         context.getCounter(ReducerCounters.VERIFIED).increment(verified);
         context.getCounter(ReducerCounters.FAILED).increment(failed);
         context.getCounter(ReducerCounters.DELTAS_APPLIED).increment(deltasApplied);
+        context.getCounter(ReducerCounters.TIED_RECORDS).increment(tied);
+        context.getCounter(ReducerCounters.TIMESTAMPED_RECORDS).increment(timestamped);
         if (!ordered) {
             context.getCounter(ReducerCounters.OUT_OF_ORDER_GROUPS).increment(1);
         }
@@ -131,6 +156,11 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
            .append(" verified=").append(verified)
            .append(" failed=").append(failed)
            .append(" positions=").append(runs);
+        if (timestamped > 0) {
+            out.append(" oldest=").append(java.time.Instant.ofEpochSecond(minTs))
+               .append(" newest=").append(java.time.Instant.ofEpochSecond(maxTs))
+               .append(" ties=").append(tied);
+        }
         if (firstError != null) {
             out.append(" firstError=").append(firstError.replace('\t', ' ').replace('\n', ' '));
         }
