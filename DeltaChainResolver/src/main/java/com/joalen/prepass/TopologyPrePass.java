@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayDeque;
+import java.util.Base64;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -15,18 +16,25 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.joalen.pack.PackReader;
+
 /**
  * Local (non-Hadoop) pre-pass. Reads the output of `git verify-pack -v` and
  * writes one tab-separated line per object:
  *
- *   rootSha  position  sha  baseSha  type  size  offset
+ *   rootSha  position  sha  baseSha  type  size  offset  [payload]
  *
  * baseSha is "-" for non-delta objects (chain roots, position 0).
+ *
+ * If a .pack file is given as a third argument, each line also gets a payload
+ * column: base64 of the object's inflated bytes exactly as stored in the pack
+ * (full content for a chain root, the delta instruction stream for a delta).
+ * Base64 never contains a tab or newline, so the TSV stays one record per line.
  *
  * Also validates its own work against verify-pack's depth column and the
  * "non delta" / "chain length = d" summary lines.
  *
- * Usage: TopologyPrePass <verify.txt> <out.tsv>
+ * Usage: TopologyPrePass <verify.txt> <out.tsv> [file.pack]
  */
 public final class TopologyPrePass {
 
@@ -43,8 +51,8 @@ public final class TopologyPrePass {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 2) {
-            System.err.println("Usage: TopologyPrePass <verify.txt> <out.tsv>");
+        if (args.length != 2 && args.length != 3) {
+            System.err.println("Usage: TopologyPrePass <verify.txt> <out.tsv> [file.pack]");
             System.exit(2);
         }
 
@@ -90,6 +98,9 @@ public final class TopologyPrePass {
         Map<Integer, Long> computedHisto = new TreeMap<>();
         int depthMismatches = 0;
 
+        PackReader pack = args.length == 3 ? new PackReader(Paths.get(args[2])) : null;
+        long payloadBytes = 0;
+
         try (BufferedWriter out = Files.newBufferedWriter(Paths.get(args[1]), StandardCharsets.UTF_8)) {
             for (Entry e : entries.values()) {
                 int depth = depthOf.get(e.sha);
@@ -119,13 +130,30 @@ public final class TopologyPrePass {
                 out.write(Long.toString(e.size));
                 out.write('\t');
                 out.write(Long.toString(e.offset));
+                if (pack != null) {
+                    PackReader.RawObject raw = pack.readAt(e.offset);
+                    if (raw.isDelta() != (e.baseSha != null)) {
+                        throw new IllegalStateException("pack and verify.txt disagree about " + e.sha
+                                + " (is the .pack the same one verify.txt was made from?)");
+                    }
+                    payloadBytes += raw.data.length;
+                    out.write('\t');
+                    out.write(Base64.getEncoder().encodeToString(raw.data));
+                }
                 out.write('\n');
+            }
+        } finally {
+            if (pack != null) {
+                pack.close();
             }
         }
 
         // Validation report.
         System.out.println("objects parsed:        " + entries.size());
         System.out.println("depth mismatches:      " + depthMismatches);
+        if (pack != null) {
+            System.out.println("payload bytes (raw):   " + payloadBytes);
+        }
         System.out.println("non-delta (computed):  " + computedNonDelta
                 + "   (verify-pack: " + reportedNonDelta + ")");
         boolean histoOk = computedHisto.equals(reportedHisto);
