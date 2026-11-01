@@ -7,26 +7,30 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
 
 /**
- * Reads one line of TopologyPrePass output per object:
+ * Reads one line of pre-pass output per object. Three shapes are accepted:
  *
- *   rootSha  position  sha  baseSha  type  size  offset  [payloadBase64]
+ *   7 cols  rootSha position sha baseSha type size offset                       (topology only)
+ *   8 cols  ... offset payloadBase64                                            (Part 3)
+ *   9 cols  ... offset payloadBase64 objectTimestamp                            (Stage 2)
  *
- * and emits (ChainKey(rootSha, position), "sha \t baseSha \t type \t size \t offset [\t payload]").
- * The payload column is optional: topology-only input (7 columns) still works.
+ * and emits (ChainKey(rootSha, position, timestamp), "sha \t baseSha \t type \t size \t offset [\t payload]").
+ * The timestamp goes into the KEY (so the shuffle can sort by it) and is
+ * removed from the value; with fewer than 9 columns it is 0.
  */
 public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text> {
     private static final int FIELDS_TOPOLOGY = 7;
     private static final int FIELDS_WITH_PAYLOAD = 8;
+    private static final int FIELDS_WITH_TIMESTAMP = 9;
 
-    public enum MapperCounters { RECORDS, MALFORMED, WITH_PAYLOAD }
+    public enum MapperCounters { RECORDS, MALFORMED, WITH_PAYLOAD, WITH_TIMESTAMP }
 
     private final ChainKey outKey = new ChainKey();
     private final Text outVal = new Text();
 
     /**
      * @param key byte offset of the line (unused)
-     * @param value one topology line
-     * @param context used to emit (ChainKey, payload)
+     * @param value one pre-pass line
+     * @param context used to emit (ChainKey, value)
      *
      * @throws IOException system encounters an I/O error
      * @throws InterruptedException Mapper task interrupted from system
@@ -37,25 +41,34 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
         if (line.isEmpty()) return;
 
         String[] f = line.split("\t", -1);
-        if (f.length != FIELDS_TOPOLOGY && f.length != FIELDS_WITH_PAYLOAD) {
+        if (f.length != FIELDS_TOPOLOGY && f.length != FIELDS_WITH_PAYLOAD
+                && f.length != FIELDS_WITH_TIMESTAMP) {
             context.getCounter(MapperCounters.MALFORMED).increment(1);
             return;
         }
 
         long position;
+        long timestamp = 0;
         try {
             position = Long.parseLong(f[1]);
+            if (f.length == FIELDS_WITH_TIMESTAMP) {
+                timestamp = Long.parseLong(f[8]);
+            }
         } catch (NumberFormatException nfe) {
             context.getCounter(MapperCounters.MALFORMED).increment(1);
             return;
         }
 
-        outKey.set(f[0], position);
-        // sha, baseSha, type, size, offset
-        String payload = f.length == FIELDS_WITH_PAYLOAD ? "\t" + f[7] : "";
+        outKey.set(f[0], position, timestamp);
+        // sha, baseSha, type, size, offset [, payload]
+        String payload = f.length >= FIELDS_WITH_PAYLOAD ? "\t" + f[7] : "";
         outVal.set(f[2] + "\t" + f[3] + "\t" + f[4] + "\t" + f[5] + "\t" + f[6] + payload);
-        if (f.length == FIELDS_WITH_PAYLOAD) {
+
+        if (f.length >= FIELDS_WITH_PAYLOAD) {
             context.getCounter(MapperCounters.WITH_PAYLOAD).increment(1);
+        }
+        if (f.length == FIELDS_WITH_TIMESTAMP) {
+            context.getCounter(MapperCounters.WITH_TIMESTAMP).increment(1);
         }
 
         context.getCounter(MapperCounters.RECORDS).increment(1);
