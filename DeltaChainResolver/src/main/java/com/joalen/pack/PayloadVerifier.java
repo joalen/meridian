@@ -5,13 +5,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,9 +21,8 @@ import java.util.Map;
  * Line format (TopologyPrePass with a pack argument):
  *   rootSha  position  sha  baseSha  type  size  offset  payloadBase64
  *
- * This is the local mirror of the Part 4 reducer. For each chain it walks
- * objects in position order, keeps a sha -> content map, applies each delta to
- * its base, and checks sha1("<type> <size>\0" + content) == sha.
+ * This is the local mirror of the reducer: it feeds each chain's objects, in
+ * position order, to the same ChainResolver the reducer uses.
  *
  * Usage: PayloadVerifier <topology-with-payload.tsv>
  */
@@ -41,7 +37,7 @@ public final class PayloadVerifier {
         byte[] payload;
     }
 
-    public static void main(String[] args) throws IOException, NoSuchAlgorithmException {
+    public static void main(String[] args) throws IOException {
         if (args.length != 1) {
             System.err.println("Usage: PayloadVerifier <topology-with-payload.tsv>");
             System.exit(2);
@@ -76,7 +72,8 @@ public final class PayloadVerifier {
 
         long ok = 0;
         long failed = 0;
-        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+        long deltasApplied = 0;
+        ChainResolver resolver = new ChainResolver();
 
         for (List<Row> chain : chains.values()) {
             Collections.sort(chain, new Comparator<Row>() {
@@ -86,43 +83,26 @@ public final class PayloadVerifier {
                 }
             });
 
-            Map<String, byte[]> resolved = new HashMap<>();
+            resolver.reset();
             for (Row r : chain) {
-                try {
-                    if (r.payload.length != r.size) {
-                        throw new IllegalStateException("payload " + r.payload.length
-                                + " bytes != expected " + r.size);
-                    }
-                    byte[] content;
-                    if (r.baseSha == null) {
-                        content = r.payload;
-                    } else {
-                        byte[] base = resolved.get(r.baseSha);
-                        if (base == null) {
-                            throw new IllegalStateException("base " + r.baseSha + " not resolved yet");
-                        }
-                        content = DeltaApplier.apply(base, r.payload);
-                    }
-                    resolved.put(r.sha, content);
-
-                    String actual = PackVerifier.hex(PackVerifier.hashObject(sha1, r.type, content));
-                    if (!actual.equals(r.sha)) {
-                        throw new IllegalStateException("sha mismatch, computed " + actual);
-                    }
+                ChainResolver.Result res = resolver.accept(r.sha, r.baseSha, r.type, r.size, r.payload);
+                if (res.ok) {
                     ok++;
-                } catch (RuntimeException e) {
+                    if (res.deltaApplied) deltasApplied++;
+                } else {
                     failed++;
                     if (failed <= 10) {
-                        System.err.println("FAIL " + r.sha + " (pos " + r.position + "): " + e.getMessage());
+                        System.err.println("FAIL " + r.sha + " (pos " + r.position + "): " + res.error);
                     }
                 }
             }
         }
 
-        System.out.println("objects:     " + total);
-        System.out.println("chains:      " + chains.size());
-        System.out.println("verified OK: " + ok);
-        System.out.println("failed:      " + failed);
+        System.out.println("objects:        " + total);
+        System.out.println("chains:         " + chains.size());
+        System.out.println("deltas applied: " + deltasApplied);
+        System.out.println("verified OK:    " + ok);
+        System.out.println("failed:         " + failed);
         System.out.println(failed == 0 && ok == total ? "ALL OBJECTS VERIFIED FROM TSV ALONE" : "VERIFICATION FAILED");
         System.exit(failed == 0 && ok == total ? 0 : 1);
     }

@@ -1,30 +1,46 @@
 package com.joalen.chain;
 
 import java.io.IOException;
+import java.util.Base64;
 
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Reducer;
 
+import com.joalen.pack.ChainResolver;
+
 /**
- * DIAGNOSTIC reducer for Stage 1. It does not reconstruct objects yet; it
- * checks that the shuffle machinery did its job:
+ * One reduce() call = one chain (grouping comparator), with its objects in
+ * position order (sort comparator). The reducer reconstructs every object,
+ * applying each delta to its already-resolved base, and verifies each one's
+ * SHA-1. It still reports the Stage 1 shuffle diagnostics (ordering, positions)
+ * so a broken sort or grouping stays visible.
  *
- *  - one reduce() call per chain root       (grouping comparator works)
- *  - positions arrive in non-decreasing order (sort comparator works)
- *  - a root never shows up on two reducers   (partitioner works; check by
- *                                             comparing GROUPS to the number of roots)
+ * Value format from DeltaChainMapper:
+ *   sha \t baseSha \t type \t size \t offset \t payloadBase64
+ * (a value without the payload column, i.e. topology-only input, is counted in
+ * NO_PAYLOAD and skipped rather than failing the job.)
  *
- * Output per chain:  rootSha  TAB  "n=<records> maxPos=<d> ordered=<bool> positions=0x1,1x3,..."
- * where positions is run-length encoded ("<position>x<count>").
+ * Output per chain:
+ *   rootSha \t "n=<records> maxPos=<d> ordered=<bool> verified=<k> failed=<f> positions=0x1,1x3,..."
+ * plus " firstError=<text>" when something failed.
  *
- * IMPORTANT Hadoop detail: while iterating `values`, Hadoop mutates `key` in
- * place, so key.getChainPosition() changes on every step. That is how you
- * read each record's position inside one grouped reduce() call.
+ * Hadoop detail: while iterating `values`, `key` is updated in place, so
+ * key.getChainPosition() changes on every step.
+ *
+ * Memory: the ChainResolver holds the whole chain's resolved contents until
+ * reset() at the next reduce() call. Fine here (largest chain ~0.4 MB); it is
+ * the cost Stage 5's bounded top-K is meant to avoid.
  */
 public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
 
-    public enum ReducerCounters { GROUPS, RECORDS, OUT_OF_ORDER_GROUPS }
+    public enum ReducerCounters {
+        GROUPS, RECORDS, OUT_OF_ORDER_GROUPS,
+        VERIFIED, FAILED, DELTAS_APPLIED, NO_PAYLOAD
+    }
 
+    private static final int VALUE_FIELDS = 6;
+
+    private final ChainResolver resolver = new ChainResolver();
     private final Text outKey = new Text();
     private final Text outVal = new Text();
 
@@ -32,15 +48,21 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
     protected void reduce(ChainKey key, Iterable<Text> values, Context context)
             throws IOException, InterruptedException {
         String root = key.getChainRootId();
+        resolver.reset();
 
         long records = 0;
+        long verified = 0;
+        long failed = 0;
+        long deltasApplied = 0;
+        String firstError = null;
+
         long lastPos = Long.MIN_VALUE;
         long runPos = Long.MIN_VALUE;
         long runCount = 0;
         boolean ordered = true;
         StringBuilder runs = new StringBuilder();
 
-        for (Text ignored : values) {
+        for (Text value : values) {
             long pos = key.getChainPosition(); // key was updated in place for this value
             records++;
 
@@ -58,6 +80,35 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
                 runPos = pos;
                 runCount = 1;
             }
+
+            String[] f = value.toString().split("\t", -1);
+            if (f.length != VALUE_FIELDS) {
+                context.getCounter(ReducerCounters.NO_PAYLOAD).increment(1);
+                continue;
+            }
+
+            String sha = f[0];
+            String baseSha = f[1].equals("-") ? null : f[1];
+            String type = f[2];
+
+            ChainResolver.Result res;
+            try {
+                long size = Long.parseLong(f[3]);
+                byte[] payload = Base64.getDecoder().decode(f[5]);
+                res = resolver.accept(sha, baseSha, type, size, payload);
+            } catch (IllegalArgumentException e) { // bad number or bad base64
+                failed++;
+                if (firstError == null) firstError = sha + ": bad value (" + e.getMessage() + ")";
+                continue;
+            }
+
+            if (res.ok) {
+                verified++;
+                if (res.deltaApplied) deltasApplied++;
+            } else {
+                failed++;
+                if (firstError == null) firstError = sha + ": " + res.error;
+            }
         }
         if (runCount > 0) {
             appendRun(runs, runPos, runCount);
@@ -65,12 +116,25 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
 
         context.getCounter(ReducerCounters.GROUPS).increment(1);
         context.getCounter(ReducerCounters.RECORDS).increment(records);
+        context.getCounter(ReducerCounters.VERIFIED).increment(verified);
+        context.getCounter(ReducerCounters.FAILED).increment(failed);
+        context.getCounter(ReducerCounters.DELTAS_APPLIED).increment(deltasApplied);
         if (!ordered) {
             context.getCounter(ReducerCounters.OUT_OF_ORDER_GROUPS).increment(1);
         }
 
         outKey.set(root);
-        outVal.set("n=" + records + " maxPos=" + lastPos + " ordered=" + ordered + " positions=" + runs);
+        StringBuilder out = new StringBuilder();
+        out.append("n=").append(records)
+           .append(" maxPos=").append(lastPos)
+           .append(" ordered=").append(ordered)
+           .append(" verified=").append(verified)
+           .append(" failed=").append(failed)
+           .append(" positions=").append(runs);
+        if (firstError != null) {
+            out.append(" firstError=").append(firstError.replace('\t', ' ').replace('\n', ' '));
+        }
+        outVal.set(out.toString());
         context.write(outKey, outVal);
     }
 
