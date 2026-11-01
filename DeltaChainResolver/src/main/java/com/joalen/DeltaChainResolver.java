@@ -18,6 +18,7 @@ import com.joalen.chain.ChainKey;
 import com.joalen.chain.ChainPartitioner;
 import com.joalen.chain.ChainSampler;
 import com.joalen.chain.ChainSortComparator;
+import com.joalen.chain.ChainTopKReducer;
 import com.joalen.chain.DeltaChainMapper;
 import com.joalen.chain.DeltaChainReducer;
 
@@ -30,7 +31,7 @@ import com.joalen.chain.DeltaChainReducer;
  * Output: one diagnostic line per chain. Read part-r-00000, part-r-00001, ...
  *         in order and the chains are in ascending chainOrigin order.
  *
- * Usage: hadoop jar DeltaChainResolver.jar <in> <out> [numReducers=4] [total|hash]
+ * Usage: hadoop jar DeltaChainResolver.jar [-Dchain.topk=K] <in> <out> [numReducers=4] [total|hash]
  *
  *   total (default)  TotalOrderPartitioner: reducer 0 gets the oldest chains,
  *                    reducer 1 the next range, ... boundaries come from a sampled
@@ -38,7 +39,12 @@ import com.joalen.chain.DeltaChainReducer;
  *   hash             Stage 1-3 behaviour: ChainPartitioner hashes the root, so each
  *                    reducer holds an arbitrary scatter of chains.
  *
- * Tunables (-D): chain.sample.size (default 2000), chain.sample.seed (default 42).
+ * Tunables (-D, placed before the paths): chain.sample.size (default 2000),
+ * chain.sample.seed (default 42), chain.topk (default 0 = off).
+ *
+ * Stage 5: -Dchain.topk=K swaps in ChainTopKReducer, which keeps only the K largest
+ * patches per chain in a bounded priority queue and skips reconstruction; the
+ * mapper then stops sending payloads through the shuffle.
  *
  * Several reducers are the default on purpose: with a single reducer a
  * broken partitioner is invisible. With 1 reducer there is nothing to range-
@@ -64,11 +70,16 @@ public class DeltaChainResolver {
             System.exit(2);
         }
 
-        Job job = Job.getInstance(config, "DeltaChainResolver - Stage 4 (" + mode + ")");
+        int topK = config.getInt("chain.topk", 0);
+        Job job = Job.getInstance(config, "DeltaChainResolver - " + (topK > 0 ? "Stage 5 top-" + topK : "Stage 4") + " (" + mode + ")");
         job.setJarByClass(DeltaChainResolver.class);
 
         job.setMapperClass(DeltaChainMapper.class);
-        job.setReducerClass(DeltaChainReducer.class);
+        if (topK > 0) {
+            job.setReducerClass(ChainTopKReducer.class);   // Stage 5: K biggest patches per chain
+        } else {
+            job.setReducerClass(DeltaChainReducer.class);  // Stage 1-4: reconstruct and verify
+        }
         job.setNumReduceTasks(numReducers);
 
         job.setMapOutputKeyClass(ChainKey.class);
@@ -109,6 +120,13 @@ public class DeltaChainResolver {
                 if (group.getName().startsWith("com.joalen")) {
                     for (Counter c : group) {
                         System.out.println(String.format("COUNTER %-24s %d", c.getName(), c.getValue()));
+                    }
+                } else if (group.getName().equals("org.apache.hadoop.mapreduce.TaskCounter")) {
+                    // shuffle volume: the number that Stage 5's payload drop changes
+                    for (Counter c : group) {
+                        if (c.getName().equals("MAP_OUTPUT_BYTES") || c.getName().equals("MAP_OUTPUT_RECORDS")) {
+                            System.out.println(String.format("COUNTER %-24s %d", c.getName(), c.getValue()));
+                        }
                     }
                 }
             }
