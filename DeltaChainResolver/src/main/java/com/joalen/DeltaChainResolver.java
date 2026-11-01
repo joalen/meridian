@@ -13,16 +13,20 @@ import org.apache.hadoop.util.GenericOptionsParser;
 import com.joalen.chain.ChainGroupingComparator;
 import com.joalen.chain.ChainKey;
 import com.joalen.chain.ChainPartitioner;
+import com.joalen.chain.ChainSortComparator;
 import com.joalen.chain.DeltaChainMapper;
 import com.joalen.chain.DeltaChainReducer;
 
 /**
- * Stage 1: baseline secondary sort over git delta-chain topology.
+ * Stage 3: mixed-direction sort (root asc, position asc, size DESC, timestamp asc) over git delta chains.
  *
- * Input:  TopologyPrePass output (rootSha, position, sha, baseSha, type, size, offset per line)
+ * Input:  TimestampAnnotator output (9 columns); 7/8-column TSVs still work (timestamp 0)
  * Output: one diagnostic line per chain root (see DeltaChainReducer)
  *
  * Usage: hadoop jar DeltaChainResolver.jar <in> <out> [numReducers=4]
+ *
+ * Several reducers are the default on purpose: with a single reducer a
+ * broken partitioner is invisible.
  */
 public class DeltaChainResolver {
 
@@ -39,7 +43,7 @@ public class DeltaChainResolver {
         String out = otherArgs[1];
         int numReducers = otherArgs.length == 3 ? Integer.parseInt(otherArgs[2]) : 4;
 
-        Job job = Job.getInstance(config, "DeltaChainResolver - Stage 1");
+        Job job = Job.getInstance(config, "DeltaChainResolver - Stage 3");
         job.setJarByClass(DeltaChainResolver.class);
 
         job.setMapperClass(DeltaChainMapper.class);
@@ -51,10 +55,11 @@ public class DeltaChainResolver {
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
 
-        // Three independent knobs; setting one does not imply the others.
+        // Three independent knobs. Each is a separate setter; setting one
+        // does not imply the others.
         job.setPartitionerClass(ChainPartitioner.class);               // which reducer
         job.setGroupingComparatorClass(ChainGroupingComparator.class); // which keys share a reduce() call
-        // Sort order: ChainKey.compareTo (natural ordering) is used by default.
+        job.setSortComparatorClass(ChainSortComparator.class);         // order: root asc, position asc, size DESC, timestamp asc
 
         FileInputFormat.addInputPath(job, new Path(in));
         FileOutputFormat.setOutputPath(job, new Path(out));
