@@ -9,14 +9,16 @@ import org.apache.hadoop.mapreduce.Mapper;
 /**
  * Reads one line of TopologyPrePass output per object:
  *
- *   rootSha  position  sha  baseSha  type  size  offset
+ *   rootSha  position  sha  baseSha  type  size  offset  [payloadBase64]
  *
- * and emits (ChainKey(rootSha, position), "sha \t baseSha \t type \t size \t offset").
+ * and emits (ChainKey(rootSha, position), "sha \t baseSha \t type \t size \t offset [\t payload]").
+ * The payload column is optional: topology-only input (7 columns) still works.
  */
 public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text> {
-    private static final int FIELDS = 7;
+    private static final int FIELDS_TOPOLOGY = 7;
+    private static final int FIELDS_WITH_PAYLOAD = 8;
 
-    public enum MapperCounters { RECORDS, MALFORMED }
+    public enum MapperCounters { RECORDS, MALFORMED, WITH_PAYLOAD }
 
     private final ChainKey outKey = new ChainKey();
     private final Text outVal = new Text();
@@ -35,7 +37,7 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
         if (line.isEmpty()) return;
 
         String[] f = line.split("\t", -1);
-        if (f.length != FIELDS) {
+        if (f.length != FIELDS_TOPOLOGY && f.length != FIELDS_WITH_PAYLOAD) {
             context.getCounter(MapperCounters.MALFORMED).increment(1);
             return;
         }
@@ -50,7 +52,11 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
 
         outKey.set(f[0], position);
         // sha, baseSha, type, size, offset
-        outVal.set(f[2] + "\t" + f[3] + "\t" + f[4] + "\t" + f[5] + "\t" + f[6]);
+        String payload = f.length == FIELDS_WITH_PAYLOAD ? "\t" + f[7] : "";
+        outVal.set(f[2] + "\t" + f[3] + "\t" + f[4] + "\t" + f[5] + "\t" + f[6] + payload);
+        if (f.length == FIELDS_WITH_PAYLOAD) {
+            context.getCounter(MapperCounters.WITH_PAYLOAD).increment(1);
+        }
 
         context.getCounter(MapperCounters.RECORDS).increment(1);
         context.write(outKey, outVal);
