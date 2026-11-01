@@ -53,6 +53,11 @@ public final class ChainResolver {
         resolved.clear();
     }
 
+    /** Verified content of an object already accepted in this chain, or null. */
+    public byte[] get(String sha) {
+        return resolved.get(sha);
+    }
+
     /** Number of objects currently held (useful for memory reasoning). */
     public int heldObjects() {
         return resolved.size();
