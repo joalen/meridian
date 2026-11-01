@@ -23,10 +23,11 @@ import com.joalen.pack.ChainResolver;
  * Output per chain:
  *   rootSha \t "n=<records> maxPos=<d> ordered=<bool> verified=<k> failed=<f> positions=0x1,1x3,..
  *                [oldest=<iso> newest=<iso> ties=<t>]"
- * (the bracketed part appears only for 9-column input). "ordered" means
- * (position, timestamp) never went backwards; "ties" counts records whose
- * (position, timestamp) equals the previous record's, i.e. the residual
- * order the 3-field key cannot decide.
+ * (the bracketed part appears only for 9-column input), with
+ * "patchBytes=<sum> biggestPatch=<size>@<pos>:<sha7>" before it (delta records only).
+ * "ordered" means the shuffle delivered (position asc, size DESC, timestamp asc);
+ * "ties" counts records whose (position, size, timestamp) equals the previous
+ * record's, i.e. the residual order the key cannot decide.
  * plus " firstError=<text>" when something failed.
  *
  * Hadoop detail: while iterating `values`, `key` is updated in place, so
@@ -41,7 +42,8 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
     public enum ReducerCounters {
         GROUPS, RECORDS, OUT_OF_ORDER_GROUPS,
         VERIFIED, FAILED, DELTAS_APPLIED, NO_PAYLOAD,
-        TIED_RECORDS, TIMESTAMPED_RECORDS
+        TIED_RECORDS, TIMESTAMPED_RECORDS,
+        SIZE_MISMATCH, PATCH_BYTES
     }
 
     private static final int VALUE_FIELDS = 6;
@@ -64,6 +66,12 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
 
         long lastPos = Long.MIN_VALUE;
         long lastTs = Long.MIN_VALUE;
+        long lastSize = Long.MIN_VALUE;
+        long sizeMismatch = 0;  // key's size disagreeing with the value's size column
+        long patchBytes = 0;    // sum of delta-stream lengths (deltas only)
+        long biggestPatch = -1;
+        long biggestPatchPos = -1;
+        String biggestPatchSha = null;
         long tied = 0;          // records whose (position, timestamp) equals the previous record's
         long minTs = Long.MAX_VALUE;
         long maxTs = Long.MIN_VALUE;
@@ -76,18 +84,24 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
         for (Text value : values) {
             long pos = key.getChainPosition(); // key was updated in place for this value
             long ts = key.getObjectTimestamp();
+            long size = key.getObjectSize();
             records++;
 
-            // Order is (position, timestamp) ascending. A timestamp going down
-            // within one position is as wrong as a position going down.
-            if (pos < lastPos || (pos == lastPos && ts < lastTs)) {
+            // Expected order: position ASCENDING; within a position size
+            // DESCENDING; then timestamp ASCENDING. Note the mixed directions:
+            // a size going UP inside one position is the violation.
+            boolean sameSlot = pos == lastPos;
+            if (pos < lastPos
+                    || (sameSlot && size > lastSize)
+                    || (sameSlot && size == lastSize && ts < lastTs)) {
                 ordered = false;
             }
-            if (pos == lastPos && ts == lastTs) {
+            if (sameSlot && size == lastSize && ts == lastTs) {
                 tied++;
             }
             lastPos = pos;
             lastTs = ts;
+            lastSize = size;
             if (ts != 0) {
                 timestamped++;
                 minTs = Math.min(minTs, ts);
@@ -114,11 +128,25 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
             String baseSha = f[1].equals("-") ? null : f[1];
             String type = f[2];
 
+            // The key was filled in place for THIS value, so its size must equal
+            // the value's own size column. If not, key and value got out of step.
+            if (!f[3].equals(Long.toString(size))) {
+                sizeMismatch++;
+            }
+            if (baseSha != null) {            // a delta: size is the patch length
+                patchBytes += size;
+                if (size > biggestPatch) {
+                    biggestPatch = size;
+                    biggestPatchPos = pos;
+                    biggestPatchSha = sha;
+                }
+            }
+
             ChainResolver.Result res;
             try {
-                long size = Long.parseLong(f[3]);
+                long declaredSize = Long.parseLong(f[3]);
                 byte[] payload = Base64.getDecoder().decode(f[5]);
-                res = resolver.accept(sha, baseSha, type, size, payload);
+                res = resolver.accept(sha, baseSha, type, declaredSize, payload);
             } catch (IllegalArgumentException e) { // bad number or bad base64
                 failed++;
                 if (firstError == null) firstError = sha + ": bad value (" + e.getMessage() + ")";
@@ -142,6 +170,8 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
         context.getCounter(ReducerCounters.VERIFIED).increment(verified);
         context.getCounter(ReducerCounters.FAILED).increment(failed);
         context.getCounter(ReducerCounters.DELTAS_APPLIED).increment(deltasApplied);
+        context.getCounter(ReducerCounters.SIZE_MISMATCH).increment(sizeMismatch);
+        context.getCounter(ReducerCounters.PATCH_BYTES).increment(patchBytes);
         context.getCounter(ReducerCounters.TIED_RECORDS).increment(tied);
         context.getCounter(ReducerCounters.TIMESTAMPED_RECORDS).increment(timestamped);
         if (!ordered) {
@@ -156,6 +186,11 @@ public class DeltaChainReducer extends Reducer<ChainKey, Text, Text, Text> {
            .append(" verified=").append(verified)
            .append(" failed=").append(failed)
            .append(" positions=").append(runs);
+        out.append(" patchBytes=").append(patchBytes);
+        if (biggestPatchSha != null) {
+            out.append(" biggestPatch=").append(biggestPatch).append('@').append(biggestPatchPos)
+               .append(':').append(biggestPatchSha.substring(0, 7));
+        }
         if (timestamped > 0) {
             out.append(" oldest=").append(java.time.Instant.ofEpochSecond(minTs))
                .append(" newest=").append(java.time.Instant.ofEpochSecond(maxTs))

@@ -8,13 +8,16 @@ import org.apache.hadoop.io.WritableComparator;
  * the third of the three separate shuffle classes:
  *
  *   ChainPartitioner         which reducer a key goes to      (root)
- *   ChainSortComparator      the order records are sorted in  (root, position, timestamp)
+ *   ChainSortComparator      the order records are sorted in  (root asc, position asc, size DESC, timestamp asc)
  *   ChainGroupingComparator  which sorted neighbors form one  (root)
  *                            reduce() call
  *
  * Within one chain this puts records in dependency order (position ascending,
- * so a base always arrives before the deltas that need it) and, among records
- * at the same position, oldest first. Registered with job.setSortComparatorClass.
+ * so a base always arrives before the deltas that need it). Among records at the
+ * same position the order is MIXED-DIRECTION: largest size first (descending),
+ * then oldest first (ascending). Records at one position never depend on each
+ * other, so this extra ordering is free to choose; it makes the biggest patch
+ * at each depth arrive first. Registered with job.setSortComparatorClass.
  *
  * It must agree with the grouping comparator on one point: keys it considers
  * different only in position/timestamp must still sort next to each other
@@ -37,6 +40,12 @@ public class ChainSortComparator extends WritableComparator {
             return c;
         }
         c = Long.compare(left.getChainPosition(), right.getChainPosition());
+        if (c != 0) {
+            return c;
+        }
+        // Descending: swap the operands. Do NOT write `right - left`; subtraction
+        // can overflow for large values and flips the sign of the result.
+        c = Long.compare(right.getObjectSize(), left.getObjectSize());
         if (c != 0) {
             return c;
         }

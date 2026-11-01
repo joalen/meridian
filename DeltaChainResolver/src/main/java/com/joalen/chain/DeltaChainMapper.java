@@ -13,7 +13,7 @@ import org.apache.hadoop.mapreduce.Mapper;
  *   8 cols  ... offset payloadBase64                                            (Part 3)
  *   9 cols  ... offset payloadBase64 objectTimestamp                            (Stage 2)
  *
- * and emits (ChainKey(rootSha, position, timestamp), "sha \t baseSha \t type \t size \t offset [\t payload]").
+ * and emits (ChainKey(rootSha, position, timestamp, size), "sha \t baseSha \t type \t size \t offset [\t payload]").
  * The timestamp goes into the KEY (so the shuffle can sort by it) and is
  * removed from the value; with fewer than 9 columns it is 0.
  */
@@ -49,8 +49,10 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
 
         long position;
         long timestamp = 0;
+        long size;
         try {
             position = Long.parseLong(f[1]);
+            size = Long.parseLong(f[5]);
             if (f.length == FIELDS_WITH_TIMESTAMP) {
                 timestamp = Long.parseLong(f[8]);
             }
@@ -59,7 +61,7 @@ public class DeltaChainMapper extends Mapper<LongWritable, Text, ChainKey, Text>
             return;
         }
 
-        outKey.set(f[0], position, timestamp);
+        outKey.set(f[0], position, timestamp, size); // size stays in the value too
         // sha, baseSha, type, size, offset [, payload]
         String payload = f.length >= FIELDS_WITH_PAYLOAD ? "\t" + f[7] : "";
         outVal.set(f[2] + "\t" + f[3] + "\t" + f[4] + "\t" + f[5] + "\t" + f[6] + payload);
